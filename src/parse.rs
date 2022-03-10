@@ -66,8 +66,7 @@ pub struct ItemTransition {
     pub event: syn::Ident,
     pub arrow_token: Token![=>],
     pub target: syn::Ident,
-    pub slash_token: Option<Token![/]>,
-    pub action: Option<Action>,
+    pub action: Option<(Token![/], Action)>,
     pub semi_token: Token![;],
 }
 
@@ -96,26 +95,18 @@ impl Parse for ItemState {
 
 impl Parse for ItemTransition {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let source = input.parse()?;
-        let plus_token = input.parse()?;
-        let event = input.parse()?;
-        let arrow_token = input.parse()?;
-        let target = input.parse()?;
-        let slash_token = input.parse()?;
-        let action = match &slash_token {
-            Some(_) => Some(input.parse()?),
-            _ => None,
-        };
-        let semi_token = input.parse()?;
         Ok(ItemTransition {
-            source,
-            plus_token,
-            event,
-            arrow_token,
-            target,
-            slash_token,
-            action,
-            semi_token,
+            source: input.parse()?,
+            plus_token: input.parse()?,
+            event: input.parse()?,
+            arrow_token: input.parse()?,
+            target: input.parse()?,
+            action: if input.peek(Token![/]) {
+                Some((input.parse()?, input.parse()?))
+            } else {
+                None
+            },
+            semi_token: input.parse()?,
         })
     }
 }
@@ -131,9 +122,10 @@ impl Parse for Action {
             | syn::Expr::Group(_)
             | syn::Expr::Macro(_)
             | syn::Expr::MethodCall(_)
-            | syn::Expr::Path(_) => Ok(Action { expr }),
-            _ => Err(Error::new_spanned(expr, "expected an action expression")),
+            | syn::Expr::Path(_) => (),
+            _ => return Err(Error::new_spanned(expr, "expected an action expression")),
         }
+        Ok(Action { expr })
     }
 }
 
