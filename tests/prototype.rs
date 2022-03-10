@@ -1,4 +1,4 @@
-trait EventProcessor<T, E> {
+trait EventProcessor<E> {
     fn process(&mut self, event: E);
 }
 
@@ -15,18 +15,13 @@ enum MyMachineEvent {
     EventB(EventB),
 }
 
-trait MyMachineContext {
-    fn on_b(&mut self);
-    fn is_even_p(&self, event: &EventB) -> bool;
-}
-
-struct MyMachine<T: MyMachineContext> {
-    context: T,
+struct MyMachine {
+    context: MyMachineContext,
     state: MyMachineState,
 }
 
-impl<T: MyMachineContext> MyMachine<T> {
-    pub fn new(context: T) -> Self {
+impl MyMachine {
+    pub fn new(context: MyMachineContext) -> Self {
         MyMachine {
             context,
             state: MyMachineState::State1,
@@ -43,33 +38,34 @@ impl<T: MyMachineContext> MyMachine<T> {
             },
             MyMachineState::State2 => match &event {
                 MyMachineEvent::EventB(event) => {
-                    if self.context.is_even_p(&event) {
-                        self.context.on_b();
+                    let ctx = &self.context;
+                    if ctx.is_even_p(&event) {
+                        let ctx = &mut self.context;
+                        ctx.on_b();
                         self.state = MyMachineState::State1;
                     }
                 }
                 _ => (),
             },
-            _ => (),
         }
     }
 }
 
-impl<T: MyMachineContext> EventProcessor<T, EventA> for MyMachine<T> {
+impl EventProcessor<EventA> for MyMachine {
     fn process(&mut self, event: EventA) {
         self.process_internal(MyMachineEvent::EventA(event));
     }
 }
 
-impl<T: MyMachineContext> EventProcessor<T, EventB> for MyMachine<T> {
+impl EventProcessor<EventB> for MyMachine {
     fn process(&mut self, event: EventB) {
         self.process_internal(MyMachineEvent::EventB(event));
     }
 }
 
-struct Context;
+struct MyMachineContext;
 
-impl MyMachineContext for Context {
+impl MyMachineContext {
     fn on_b(&mut self) {
         eprintln!("got event B");
     }
@@ -80,7 +76,7 @@ impl MyMachineContext for Context {
 
 #[test]
 fn prototype() {
-    let mut m = MyMachine::new(Context {});
+    let mut m = MyMachine::new(MyMachineContext {});
     m.process(EventB(2));
     m.process(EventA {});
     m.process(EventB(1));
