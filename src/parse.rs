@@ -67,11 +67,16 @@ pub struct ItemTransition {
     pub arrow_token: Token![=>],
     pub target: syn::Ident,
     pub action: Option<(Token![/], Action)>,
+    pub guard: Option<(Token![if], Guard)>,
     pub semi_token: Token![;],
 }
 
 pub struct Action {
-    pub expr: syn::Expr,
+    pub expr: Box<syn::Expr>,
+}
+
+pub struct Guard {
+    pub expr: Box<syn::Expr>,
 }
 
 impl Parse for MachineItem {
@@ -106,6 +111,11 @@ impl Parse for ItemTransition {
             } else {
                 None
             },
+            guard: if input.peek(Token![if]) {
+                Some((input.parse()?, input.parse()?))
+            } else {
+                None
+            },
             semi_token: input.parse()?,
         })
     }
@@ -113,8 +123,8 @@ impl Parse for ItemTransition {
 
 impl Parse for Action {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let expr = input.parse()?;
-        match expr {
+        let expr: Box<syn::Expr> = input.parse()?;
+        match expr.as_ref() {
             syn::Expr::Assign(_)
             | syn::Expr::AssignOp(_)
             | syn::Expr::Block(_)
@@ -126,6 +136,14 @@ impl Parse for Action {
             _ => return Err(Error::new_spanned(expr, "expected an action expression")),
         }
         Ok(Action { expr })
+    }
+}
+
+impl Parse for Guard {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        Ok(Guard {
+            expr: input.parse()?,
+        })
     }
 }
 
@@ -142,7 +160,8 @@ mod tests {
                 state S2;
 
                 S1 + E2 => S2 / print2;
-                S2 + E1 => S1;
+                S2 + E1 => S1
+                    if some_cond();
             }
         };
     }
