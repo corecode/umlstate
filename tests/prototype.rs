@@ -31,7 +31,7 @@ impl MyMachine {
     fn process_internal(&mut self, event: MyMachineEvent) {
         match self.state {
             MyMachineState::State1 => match &event {
-                MyMachineEvent::EventA(event) => {
+                MyMachineEvent::EventA(_event) => {
                     self.state = MyMachineState::State2;
                 }
                 _ => (),
