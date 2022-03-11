@@ -39,7 +39,7 @@ impl MyMachine {
             MyMachineState::State2 => match &event {
                 MyMachineEvent::EventB(event) => {
                     let ctx = &self.context;
-                    if ctx.is_even_p(&event) {
+                    if ctx.is_even_p(event) {
                         let ctx = &mut self.context;
                         ctx.on_b();
                         self.state = MyMachineState::State1;
