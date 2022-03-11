@@ -1,3 +1,4 @@
+use quote::ToTokens;
 use syn::parse::Parse;
 use syn::{Error, Result, Token};
 
@@ -144,6 +145,73 @@ impl Parse for Guard {
         Ok(Guard {
             expr: input.parse()?,
         })
+    }
+}
+
+impl ToTokens for UmlState {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        for item in self.items.iter() {
+            item.to_tokens(tokens);
+        }
+    }
+}
+
+impl ToTokens for Machine {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.machine_token.to_tokens(tokens);
+        self.ident.to_tokens(tokens);
+        self.brace_token.surround(tokens, |tokens| {
+            for item in self.items.iter() {
+                item.to_tokens(tokens);
+            }
+        })
+    }
+}
+
+impl ToTokens for MachineItem {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            MachineItem::State(s) => s.to_tokens(tokens),
+            MachineItem::Transition(t) => t.to_tokens(tokens),
+        }
+    }
+}
+
+impl ToTokens for ItemState {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.state_token.to_tokens(tokens);
+        self.ident.to_tokens(tokens);
+        self.semi_token.to_tokens(tokens);
+    }
+}
+
+impl ToTokens for ItemTransition {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.source.to_tokens(tokens);
+        self.plus_token.to_tokens(tokens);
+        self.event.to_tokens(tokens);
+        self.arrow_token.to_tokens(tokens);
+        self.target.to_tokens(tokens);
+        if let Some((slash, action)) = &self.action {
+            slash.to_tokens(tokens);
+            action.to_tokens(tokens);
+        }
+        if let Some((if_token, guard)) = &self.guard {
+            if_token.to_tokens(tokens);
+            guard.to_tokens(tokens);
+        }
+    }
+}
+
+impl ToTokens for Action {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.expr.to_tokens(tokens);
+    }
+}
+
+impl ToTokens for Guard {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.expr.to_tokens(tokens);
     }
 }
 
