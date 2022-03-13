@@ -55,13 +55,18 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
 
     for it in &machine.items {
         if let parse::MachineItem::Transition(transition) = it {
-            let state = m
-                .states
-                .get_mut(&transition.source)
-                .ok_or(syn::Error::new_spanned(
+            if !m.states.contains_key(&transition.target) {
+                return Err(syn::Error::new_spanned(
+                    &transition.target,
+                    "transition target is not a declared state",
+                ));
+            }
+            let state = m.states.get_mut(&transition.source).ok_or_else(|| {
+                syn::Error::new_spanned(
                     &transition.source,
                     "transition source is not a declared state",
-                ))?;
+                )
+            })?;
             state.out_transitions.push(OutTransition {
                 target: transition.target.clone(),
                 event: transition.event.clone(),

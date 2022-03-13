@@ -1,0 +1,5 @@
+error: transition target is not a declared state
+ --> tests/bad_syntax/invalid_state.rs:6:18
+  |
+6 |         A + E => B;
+  |                  ^
