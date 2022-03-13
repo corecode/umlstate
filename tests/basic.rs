@@ -5,6 +5,8 @@ umlstate! {
     }
 }
 
+struct BasicContext;
+
 fn main() {
-    let _b = Basic::new();
+    let _b = Basic::new(BasicContext);
 }
