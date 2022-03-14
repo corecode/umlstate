@@ -5,7 +5,7 @@ trait EventProcessor<E> {
 struct EventA;
 struct EventB(u32);
 
-mod MyMachineMod {
+mod mymachine_mod {
     use super::*;
 
     pub enum State {
@@ -71,8 +71,8 @@ mod MyMachineMod {
     }
 }
 
-use MyMachineMod::Machine as MyMachine;
-use MyMachineMod::State as MyMachineState;
+use mymachine_mod::Machine as MyMachine;
+use mymachine_mod::State as MyMachineState;
 
 struct MyMachineContext;
 
