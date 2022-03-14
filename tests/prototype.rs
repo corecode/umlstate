@@ -31,6 +31,10 @@ mod MyMachineMod {
             }
         }
 
+        pub fn state_config(&self) -> std::vec::IntoIter<&State> {
+            vec![&self.state].into_iter()
+        }
+
         fn process_internal(&mut self, event: Event) {
             match self.state {
                 State::State1 => match &event {
@@ -68,6 +72,7 @@ mod MyMachineMod {
 }
 
 use MyMachineMod::Machine as MyMachine;
+use MyMachineMod::State as MyMachineState;
 
 struct MyMachineContext;
 
@@ -84,7 +89,13 @@ impl MyMachineContext {
 fn prototype() {
     let mut m = MyMachine::new(MyMachineContext {});
     m.process(EventB(2));
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::State1))
+        .unwrap();
     m.process(EventA {});
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::State2))
+        .unwrap();
     m.process(EventB(1));
     m.process(EventB(4));
 }

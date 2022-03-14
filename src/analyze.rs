@@ -10,6 +10,7 @@ pub struct Model {
 
 pub struct Machine {
     pub ident: syn::Ident,
+    pub initial_state: Option<syn::Ident>,
     pub states: HashMap<syn::Ident, State>,
     pub events: HashSet<syn::Ident>,
 }
@@ -37,15 +38,14 @@ pub fn analyze(ast: parse::UmlState) -> Result<Model> {
 }
 
 fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
-    let mut m = Machine {
-        ident: machine.ident,
-        states: HashMap::new(),
-        events: HashSet::new(),
-    };
+    let mut states = HashMap::new();
+    let mut events = HashSet::new();
+    let mut initial_state: Option<syn::Ident> = None;
 
     for it in &machine.items {
         if let parse::MachineItem::State(state) = it {
-            m.states.insert(
+            initial_state.get_or_insert(state.ident.clone());
+            states.insert(
                 state.ident.clone(),
                 State {
                     ident: state.ident.clone(),
@@ -57,19 +57,19 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
 
     for it in &machine.items {
         if let parse::MachineItem::Transition(transition) = it {
-            if !m.states.contains_key(&transition.target) {
+            if !states.contains_key(&transition.target) {
                 return Err(syn::Error::new_spanned(
                     &transition.target,
                     "transition target is not a declared state",
                 ));
             }
-            let state = m.states.get_mut(&transition.source).ok_or_else(|| {
+            let state = states.get_mut(&transition.source).ok_or_else(|| {
                 syn::Error::new_spanned(
                     &transition.source,
                     "transition source is not a declared state",
                 )
             })?;
-            m.events.insert(transition.event.clone());
+            events.insert(transition.event.clone());
             state.out_transitions.push(OutTransition {
                 target: transition.target.clone(),
                 event: transition.event.clone(),
@@ -77,7 +77,12 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
         }
     }
 
-    Ok(m)
+    Ok(Machine {
+        ident: machine.ident,
+        initial_state,
+        states,
+        events,
+    })
 }
 
 #[cfg(test)]
