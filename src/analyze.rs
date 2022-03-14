@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use syn::Result;
 
@@ -11,6 +11,7 @@ pub struct Model {
 pub struct Machine {
     pub ident: syn::Ident,
     pub states: HashMap<syn::Ident, State>,
+    pub events: HashSet<syn::Ident>,
 }
 
 pub struct State {
@@ -39,6 +40,7 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
     let mut m = Machine {
         ident: machine.ident,
         states: HashMap::new(),
+        events: HashSet::new(),
     };
 
     for it in &machine.items {
@@ -67,6 +69,7 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
                     "transition source is not a declared state",
                 )
             })?;
+            m.events.insert(transition.event.clone());
             state.out_transitions.push(OutTransition {
                 target: transition.target.clone(),
                 event: transition.event.clone(),
