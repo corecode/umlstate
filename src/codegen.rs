@@ -1,5 +1,4 @@
-use proc_macro2::Ident;
-use quote::quote;
+use quote::{format_ident, quote};
 
 use crate::analyze;
 
@@ -15,8 +14,8 @@ pub fn generate(model: analyze::Model) -> proc_macro::TokenStream {
 
 fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
     let ident = &machine.ident;
-    let context = Ident::new(format!("{}Context", ident).as_str(), ident.span());
-    let modname = Ident::new(format!("{}_mod", ident).as_str(), ident.span());
+    let context = format_ident!("{}Context", ident);
+    let modname = format_ident!("{}_mod", ident);
 
     quote! {
         mod #modname {
