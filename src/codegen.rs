@@ -15,7 +15,7 @@ pub fn generate(model: analyze::Model) -> proc_macro::TokenStream {
 fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
     let ident = &machine.ident;
     let context = format_ident!("{}Context", ident);
-    let modname = format_ident!("{}_mod", ident);
+    let modname = format_ident!("{}_mod", ident.to_string().to_lowercase());
 
     let event_decl = machine.events.iter().map(|ident| {
         quote! {
