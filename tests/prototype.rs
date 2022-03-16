@@ -19,7 +19,7 @@ mod mymachine_mod {
     }
 
     pub(crate) struct Machine {
-        context: MyMachineContext,
+        pub context: MyMachineContext,
         state: State,
     }
 
@@ -36,6 +36,7 @@ mod mymachine_mod {
         }
 
         fn process_internal(&mut self, event: Event) {
+            let ctx = &self.context;
             match self.state {
                 State::State1 => match &event {
                     Event::EventA(_event) => {
@@ -44,13 +45,10 @@ mod mymachine_mod {
                     _ => (),
                 },
                 State::State2 => match &event {
-                    Event::EventB(event) => {
-                        let ctx = &self.context;
-                        if ctx.is_even_p(event) {
-                            let ctx = &mut self.context;
-                            ctx.on_b();
-                            self.state = State::State1;
-                        }
+                    Event::EventB(event) if ctx.is_even_p(event) => {
+                        let ctx = &mut self.context;
+                        ctx.on_b();
+                        self.state = State::State1;
                     }
                     _ => (),
                 },

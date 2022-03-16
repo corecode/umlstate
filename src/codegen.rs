@@ -42,8 +42,11 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
         let transitions = state.out_transitions.iter().map(|t| {
             let event = &t.event;
             let target = &t.target;
+            let action = &t.action;
             quote! {
                 Event::#event(event) => {
+                    let ctx = &mut self.context;
+                    #action;
                     self.state = State::#target;
                 }
             }
@@ -70,7 +73,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
             }
 
             pub(crate) struct Machine {
-                context: #context,
+                pub context: #context,
                 state: State,
             }
 

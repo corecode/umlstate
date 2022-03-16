@@ -23,6 +23,7 @@ pub struct State {
 pub struct OutTransition {
     pub event: syn::Ident,
     pub target: syn::Ident,
+    pub action: Option<Box<syn::Expr>>,
 }
 
 pub fn analyze(ast: parse::UmlState) -> Result<Model> {
@@ -73,6 +74,7 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
             state.out_transitions.push(OutTransition {
                 target: transition.target.clone(),
                 event: transition.event.clone(),
+                action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
             })
         }
     }
