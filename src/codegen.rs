@@ -46,8 +46,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
             let action = &t.action;
             let guard = t.guard.as_ref().map(|g| quote! { if #g });
             quote! {
-                Event::#event(event #event_pat) #guard
-                    => {
+                Event::#event(event #event_pat) #guard => {
                     let ctx = &mut self.context;
                     #action;
                     self.state = State::#target;
