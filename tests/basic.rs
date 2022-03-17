@@ -1,12 +1,16 @@
 use umlstate::umlstate;
 
-struct E(bool);
+struct E(u32);
+struct E2;
 
 umlstate! {
     machine Basic {
         state A;
         state B;
-        A + E(b) => A / ctx.called = b;
+        state C
+        A + E(n) => B / ctx.called = true
+            if n > 0;
+        B + E2 => C;
     }
 }
 
@@ -19,10 +23,12 @@ fn basic() {
     let mut b = Basic::new(BasicContext { called: false });
     assert_eq!(b.state_config().count(), 1);
     assert!(b.state_config().any(|s| matches!(s, BasicState::A)));
-    b.process(E(false));
+    b.process(E(0));
     assert!(b.state_config().any(|s| matches!(s, BasicState::A)));
     assert!(!b.context.called);
-    b.process(E(true));
-    // assert!(b.state_config().any(|s| matches!(s, BasicState::B)));
+    b.process(E(5));
+    assert!(b.state_config().any(|s| matches!(s, BasicState::B)));
     assert!(b.context.called);
+    b.process(E2 {});
+    assert!(b.state_config().any(|s| matches!(s, BasicState::C)));
 }

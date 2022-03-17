@@ -26,6 +26,7 @@ pub struct OutTransition {
     pub event_pat: syn::Pat,
     pub target: syn::Ident,
     pub action: Option<Box<syn::Expr>>,
+    pub guard: Option<Box<syn::Expr>>,
 }
 
 pub fn analyze(ast: parse::UmlState) -> Result<Model> {
@@ -113,6 +114,7 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
                 event: internal_event.clone(),
                 event_pat,
                 action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
+                guard: transition.guard.as_ref().map(|(_, g)| g.expr.clone()),
             })
         }
     }
