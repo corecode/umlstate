@@ -38,14 +38,14 @@ mod mymachine_mod {
         fn process_internal(&mut self, event: Event) {
             let ctx = &self.context;
             match self.state {
-                State::State1 => match &event {
-                    Event::EventA(_event) => {
+                State::State1 => match event {
+                    Event::EventA(_event @ _) => {
                         self.state = State::State2;
                     }
                     _ => (),
                 },
-                State::State2 => match &event {
-                    Event::EventB(event) if ctx.is_even_p(event) => {
+                State::State2 => match event {
+                    Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
                         let ctx = &mut self.context;
                         ctx.on_b();
                         self.state = State::State1;
@@ -78,8 +78,8 @@ impl MyMachineContext {
     fn on_b(&mut self) {
         eprintln!("got event B");
     }
-    fn is_even_p(&self, event: &EventB) -> bool {
-        event.0 % 2 == 0
+    fn is_even_p(&self, n: u32) -> bool {
+        n % 2 == 0
     }
 }
 

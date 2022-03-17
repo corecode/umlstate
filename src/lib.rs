@@ -13,5 +13,5 @@ pub fn umlstate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         Ok(model) => model,
     };
 
-    codegen::generate(model)
+    codegen::generate(model).into()
 }

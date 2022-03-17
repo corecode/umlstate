@@ -2,8 +2,8 @@ use quote::{format_ident, quote};
 
 use crate::analyze;
 
-pub fn generate(model: analyze::Model) -> proc_macro::TokenStream {
-    let mut tt = proc_macro::TokenStream::default();
+pub fn generate(model: analyze::Model) -> proc_macro2::TokenStream {
+    let mut tt = proc_macro2::TokenStream::default();
 
     for m in model.items {
         tt.extend(generate_machine(&m));
@@ -12,7 +12,7 @@ pub fn generate(model: analyze::Model) -> proc_macro::TokenStream {
     tt
 }
 
-fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
+fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
     let ident = &machine.ident;
     let context = format_ident!("{}Context", ident);
     let statename = format_ident!("{}State", ident);
@@ -20,16 +20,16 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
 
     let state_decl = machine.states.keys();
 
-    let event_decl = machine.events.iter().map(|ident| {
+    let event_decl = machine.events.iter().map(|(path, ident)| {
         quote! {
-            #ident(#ident)
+            #ident(#path)
         }
     });
 
-    let process_impls = machine.events.iter().map(|ident| {
+    let process_impls = machine.events.iter().map(|(path, ident)| {
         quote! {
-            impl EventProcessor<#ident> for Machine {
-                fn process(&mut self, event: #ident) {
+            impl EventProcessor<#path> for Machine {
+                fn process(&mut self, event: #path) {
                     self.process_internal(Event::#ident(event));
                 }
             }
@@ -41,10 +41,11 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
     let process_states = machine.states.iter().map(|(statename, state)| {
         let transitions = state.out_transitions.iter().map(|t| {
             let event = &t.event;
+            let event_pat = &t.event_pat;
             let target = &t.target;
             let action = &t.action;
             quote! {
-                Event::#event(event) => {
+                Event::#event(event @ #event_pat) => {
                     let ctx = &mut self.context;
                     #action;
                     self.state = State::#target;
@@ -52,7 +53,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
             }
         });
         quote! {
-            State::#statename => match &event {
+            State::#statename => match event {
                 #(#transitions),*
                 _ => (),
             }
@@ -107,5 +108,24 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro::TokenStream {
         use #modname::State as #statename;
         use #modname::EventProcessor;
     }
-    .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::parse;
+
+    #[test]
+    fn basic() {
+        let ast: parse::UmlState = syn::parse_quote! {
+            machine Foo {
+                state A;
+                A + E(_) => A;
+            }
+        };
+
+        let model = analyze::analyze(ast).unwrap();
+        let _code = generate(model);
+    }
 }

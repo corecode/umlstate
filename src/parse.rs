@@ -64,12 +64,16 @@ pub struct ItemState {
 pub struct ItemTransition {
     pub source: syn::Ident,
     pub plus_token: Token![+],
-    pub event: syn::Ident,
+    pub event: Event,
     pub arrow_token: Token![=>],
     pub target: syn::Ident,
     pub action: Option<(Token![/], Action)>,
     pub guard: Option<(Token![if], Guard)>,
     pub semi_token: Token![;],
+}
+
+pub struct Event {
+    pub pat: syn::Pat,
 }
 
 pub struct Action {
@@ -119,6 +123,19 @@ impl Parse for ItemTransition {
             },
             semi_token: input.parse()?,
         })
+    }
+}
+
+impl Parse for Event {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let pat = input.parse()?;
+        match &pat {
+            syn::Pat::Path(_) | syn::Pat::Struct(_) | syn::Pat::TupleStruct(_) => (),
+            syn::Pat::Ident(i)
+                if i.by_ref.is_none() && i.mutability.is_none() && i.subpat.is_none() => {}
+            _ => return Err(Error::new_spanned(pat, "event must name a type")),
+        }
+        Ok(Event { pat })
     }
 }
 
@@ -203,6 +220,12 @@ impl ToTokens for ItemTransition {
     }
 }
 
+impl ToTokens for Event {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.pat.to_tokens(tokens);
+    }
+}
+
 impl ToTokens for Action {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         self.expr.to_tokens(tokens);
@@ -227,7 +250,7 @@ mod tests {
                 state S1;
                 state S2;
 
-                S1 + E2 => S2 / print2;
+                S1 + E2(n) => S2 / print2;
                 S2 + E1 => S1
                     if some_cond();
             }
