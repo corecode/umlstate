@@ -41,12 +41,12 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
     let process_states = machine.states.iter().map(|(statename, state)| {
         let transitions = state.out_transitions.iter().map(|t| {
             let event = &t.event;
-            let event_pat = &t.event_pat;
+            let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
             let target = &t.target;
             let action = &t.action;
             let guard = t.guard.as_ref().map(|g| quote! { if #g });
             quote! {
-                Event::#event(event @ #event_pat) #guard
+                Event::#event(event #event_pat) #guard
                     => {
                     let ctx = &mut self.context;
                     #action;

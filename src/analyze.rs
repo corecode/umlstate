@@ -23,7 +23,7 @@ pub struct State {
 
 pub struct OutTransition {
     pub event: syn::Ident,
-    pub event_pat: syn::Pat,
+    pub event_pat: Option<syn::Pat>,
     pub target: syn::Ident,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
@@ -92,10 +92,9 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
                 },
                 _ => panic!("parsed invalid event pattern"),
             };
-            let event_pat = if let syn::Pat::Ident(_) = &transition.event.pat {
-                syn::parse_quote! { _ }
-            } else {
-                transition.event.pat.clone()
+            let event_pat = match &transition.event.pat {
+                syn::Pat::Ident(_) => None,
+                _ => Some(transition.event.pat.clone()),
             };
 
             let internal_event = events
@@ -154,15 +153,19 @@ mod tests {
         assert_eq!(s.ident, "A");
         assert_eq!(s.out_transitions.len(), 2);
 
+        let (e_path, e_ident) = m.events.iter().next().unwrap();
+        assert_eq!(e_path.get_ident().unwrap(), "E");
+
+        let t = &s.out_transitions[0];
+        assert_eq!(t.target, "A");
+        assert_eq!(e_ident, &t.event);
+        assert!(matches!(t.event_pat, None));
+
         let t = &s.out_transitions[1];
         assert_eq!(t.target, "A");
 
-        assert!(matches!(t.event_pat, syn::Pat::TupleStruct(ref p)
+        assert!(matches!(t.event_pat, Some(syn::Pat::TupleStruct(ref p))
                      if p.path.get_ident().unwrap() == "E"));
-
-        let (e_path, e_ident) = m.events.iter().next().unwrap();
-        assert_eq!(e_path.get_ident().unwrap(), "E");
-        assert_eq!(e_ident, &s.out_transitions[0].event);
-        assert_eq!(e_ident, &s.out_transitions[1].event);
+        assert_eq!(e_ident, &t.event);
     }
 }
