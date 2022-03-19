@@ -33,37 +33,37 @@ mod mymachine_mod {
             vec![&self.state].into_iter()
         }
 
-        fn process_internal(&mut self, event: Event) -> bool {
+        fn process_internal(&mut self, event: Event) -> umlstate::ProcessResult {
             let ctx = &self.context;
             match self.state {
                 State::State1 => match event {
                     Event::EventA(_event) => {
                         self.state = State::State2;
-                        true
+                        umlstate::ProcessResult::Handled
                     }
-                    _ => false,
+                    _ => umlstate::ProcessResult::Unhandled,
                 },
                 State::State2 => match event {
                     Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
                         let ctx = &mut self.context;
                         ctx.on_b();
                         self.state = State::State1;
-                        true
+                        umlstate::ProcessResult::Handled
                     }
-                    _ => false,
+                    _ => umlstate::ProcessResult::Unhandled,
                 },
             }
         }
     }
 
     impl EventProcessor<EventA> for Machine {
-        fn process(&mut self, event: EventA) -> bool {
+        fn process(&mut self, event: EventA) -> umlstate::ProcessResult {
             self.process_internal(Event::EventA(event))
         }
     }
 
     impl EventProcessor<EventB> for Machine {
-        fn process(&mut self, event: EventB) -> bool {
+        fn process(&mut self, event: EventB) -> umlstate::ProcessResult {
             self.process_internal(Event::EventB(event))
         }
     }
@@ -87,12 +87,12 @@ impl MyMachineContext {
 fn prototype() {
     let mut m = MyMachine::new(MyMachineContext {});
     let r = m.process(EventB(2));
-    assert!(!r);
+    assert_eq!(r, umlstate::ProcessResult::Unhandled);
     m.state_config()
         .find(|s| matches!(s, MyMachineState::State1))
         .unwrap();
     let r = m.process(EventA {});
-    assert!(r);
+    assert_eq!(r, umlstate::ProcessResult::Handled);
     m.state_config()
         .find(|s| matches!(s, MyMachineState::State2))
         .unwrap();
