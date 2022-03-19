@@ -1,5 +1,5 @@
 trait EventProcessor<E> {
-    fn process(&mut self, event: E);
+    fn process(&mut self, event: E) -> bool;
 }
 
 struct EventA;
@@ -35,36 +35,38 @@ mod mymachine_mod {
             vec![&self.state].into_iter()
         }
 
-        fn process_internal(&mut self, event: Event) {
+        fn process_internal(&mut self, event: Event) -> bool {
             let ctx = &self.context;
             match self.state {
                 State::State1 => match event {
-                    Event::EventA(_event @ _) => {
+                    Event::EventA(_event) => {
                         self.state = State::State2;
+                        true
                     }
-                    _ => (),
+                    _ => false,
                 },
                 State::State2 => match event {
                     Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
                         let ctx = &mut self.context;
                         ctx.on_b();
                         self.state = State::State1;
+                        true
                     }
-                    _ => (),
+                    _ => false,
                 },
             }
         }
     }
 
     impl EventProcessor<EventA> for Machine {
-        fn process(&mut self, event: EventA) {
-            self.process_internal(Event::EventA(event));
+        fn process(&mut self, event: EventA) -> bool {
+            self.process_internal(Event::EventA(event))
         }
     }
 
     impl EventProcessor<EventB> for Machine {
-        fn process(&mut self, event: EventB) {
-            self.process_internal(Event::EventB(event));
+        fn process(&mut self, event: EventB) -> bool {
+            self.process_internal(Event::EventB(event))
         }
     }
 }
@@ -86,11 +88,13 @@ impl MyMachineContext {
 #[test]
 fn prototype() {
     let mut m = MyMachine::new(MyMachineContext {});
-    m.process(EventB(2));
+    let r = m.process(EventB(2));
+    assert!(!r);
     m.state_config()
         .find(|s| matches!(s, MyMachineState::State1))
         .unwrap();
-    m.process(EventA {});
+    let r = m.process(EventA {});
+    assert!(r);
     m.state_config()
         .find(|s| matches!(s, MyMachineState::State2))
         .unwrap();

@@ -23,10 +23,14 @@ fn basic() {
     let mut b = Basic::new(BasicContext { called: false });
     assert_eq!(b.state_config().count(), 1);
     assert!(b.state_config().any(|s| matches!(s, BasicState::A)));
-    b.process(E(0));
+    let r = b.process(E2);
+    assert!(!r);
+    let r = b.process(E(0));
+    assert!(!r);
     assert!(b.state_config().any(|s| matches!(s, BasicState::A)));
     assert!(!b.context.called);
-    b.process(E(5));
+    let r = b.process(E(5));
+    assert!(r);
     assert!(b.state_config().any(|s| matches!(s, BasicState::B)));
     assert!(b.context.called);
     b.process(E2 {});

@@ -29,8 +29,8 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
     let process_impls = machine.events.iter().map(|(path, ident)| {
         quote! {
             impl EventProcessor<#path> for Machine {
-                fn process(&mut self, event: #path) {
-                    self.process_internal(Event::#ident(event));
+                fn process(&mut self, event: #path) -> bool {
+                    self.process_internal(Event::#ident(event))
                 }
             }
         }
@@ -50,13 +50,14 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
                     let ctx = &mut self.context;
                     #action;
                     self.state = State::#target;
+                    true
                 }
             }
         });
         quote! {
             State::#statename => match event {
                 #(#transitions),*
-                _ => (),
+                _ => false,
             }
         }
     });
@@ -91,7 +92,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
                     vec![&self.state].into_iter()
                 }
 
-                fn process_internal(&mut self, event: Event) {
+                fn process_internal(&mut self, event: Event) -> bool {
                     match self.state {
                         #(#process_states),*
                     }
@@ -99,7 +100,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
             }
 
             pub(crate) trait EventProcessor<E> {
-                fn process(&mut self, event: E);
+                fn process(&mut self, event: E) -> bool;
             }
 
             #(#process_impls)*
