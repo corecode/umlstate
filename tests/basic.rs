@@ -1,4 +1,4 @@
-use umlstate::umlstate;
+use umlstate::*;
 
 struct E(u32);
 struct E2;

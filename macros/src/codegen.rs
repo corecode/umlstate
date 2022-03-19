@@ -28,7 +28,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
 
     let process_impls = machine.events.iter().map(|(path, ident)| {
         quote! {
-            impl EventProcessor<#path> for Machine {
+            impl ::umlstate::EventProcessor<#path> for Machine {
                 fn process(&mut self, event: #path) -> bool {
                     self.process_internal(Event::#ident(event))
                 }
@@ -99,16 +99,11 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
                 }
             }
 
-            pub(crate) trait EventProcessor<E> {
-                fn process(&mut self, event: E) -> bool;
-            }
-
             #(#process_impls)*
         }
 
         use #modname::Machine as #ident;
         use #modname::State as #statename;
-        use #modname::EventProcessor;
     }
 }
 

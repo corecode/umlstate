@@ -1,6 +1,4 @@
-trait EventProcessor<E> {
-    fn process(&mut self, event: E) -> bool;
-}
+use umlstate::EventProcessor;
 
 struct EventA;
 struct EventB(u32);
