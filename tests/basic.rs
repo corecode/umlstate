@@ -7,7 +7,7 @@ umlstate! {
     machine Basic {
         state A;
         state B;
-        state C
+        state C;
         A + E(n) => B / ctx.called = true
             if n > 0;
         B + E2 => C;

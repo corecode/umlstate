@@ -60,7 +60,7 @@ pub enum MachineItem {
 pub struct ItemState {
     pub state_token: kw::state,
     pub ident: syn::Ident,
-    pub semi_token: Option<Token![;]>,
+    pub semi_token: Token![;],
 }
 
 pub struct ItemTransition {
