@@ -14,6 +14,7 @@ pub fn generate(model: analyze::Model) -> proc_macro2::TokenStream {
 
 fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
     let ident = &machine.ident;
+    let generics = &machine.generics;
     let context = format_ident!("{}Context", ident);
     let statename = format_ident!("{}State", ident);
     let modname = format_ident!("{}_mod", ident.to_string().to_lowercase());
@@ -28,7 +29,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
 
     let process_impls = machine.events.iter().map(|(path, ident)| {
         quote! {
-            impl ::umlstate::EventProcessor<#path> for Machine {
+            impl #generics ::umlstate::EventProcessor<#path> for Machine #generics {
                 fn process(&mut self, event: #path) -> ::umlstate::ProcessResult {
                     self.process_internal(Event::#ident(event))
                 }
@@ -75,13 +76,13 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
                 #(#event_decl),*
             }
 
-            pub(crate) struct Machine {
-                pub context: #context,
+            pub(crate) struct Machine #generics {
+                pub context: #context #generics,
                 state: State,
             }
 
-            impl Machine {
-                pub fn new(context: #context) -> Self {
+            impl #generics Machine #generics {
+                pub fn new(context: #context #generics) -> Self {
                     Machine {
                         context,
                         state: State::#initial_state,

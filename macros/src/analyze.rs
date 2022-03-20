@@ -11,6 +11,7 @@ pub struct Model {
 
 pub struct Machine {
     pub ident: syn::Ident,
+    pub generics: syn::Generics,
     pub initial_state: Option<syn::Ident>,
     pub states: HashMap<syn::Ident, State>,
     pub events: HashMap<syn::Path, syn::Ident>,
@@ -120,6 +121,7 @@ fn analyze_machine(machine: parse::Machine) -> Result<Machine> {
 
     Ok(Machine {
         ident: machine.ident,
+        generics: machine.generics,
         initial_state,
         states,
         events,

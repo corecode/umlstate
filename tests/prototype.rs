@@ -16,13 +16,13 @@ mod mymachine_mod {
         EventB(EventB),
     }
 
-    pub(crate) struct Machine {
-        pub context: MyMachineContext,
+    pub(crate) struct Machine<'a> {
+        pub context: MyMachineContext<'a>,
         state: State,
     }
 
-    impl Machine {
-        pub fn new(context: MyMachineContext) -> Self {
+    impl<'a> Machine<'a> {
+        pub fn new(context: MyMachineContext<'a>) -> Self {
             Machine {
                 context,
                 state: State::State1,
@@ -46,7 +46,7 @@ mod mymachine_mod {
                 State::State2 => match event {
                     Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
                         let ctx = &mut self.context;
-                        ctx.on_b();
+                        ctx.on_b(n);
                         self.state = State::State1;
                         umlstate::ProcessResult::Handled
                     }
@@ -56,13 +56,13 @@ mod mymachine_mod {
         }
     }
 
-    impl EventProcessor<EventA> for Machine {
+    impl<'a> EventProcessor<EventA> for Machine<'a> {
         fn process(&mut self, event: EventA) -> umlstate::ProcessResult {
             self.process_internal(Event::EventA(event))
         }
     }
 
-    impl EventProcessor<EventB> for Machine {
+    impl<'a> EventProcessor<EventB> for Machine<'a> {
         fn process(&mut self, event: EventB) -> umlstate::ProcessResult {
             self.process_internal(Event::EventB(event))
         }
@@ -72,11 +72,14 @@ mod mymachine_mod {
 use mymachine_mod::Machine as MyMachine;
 use mymachine_mod::State as MyMachineState;
 
-struct MyMachineContext;
+struct MyMachineContext<'a> {
+    dataref: &'a mut u32,
+}
 
-impl MyMachineContext {
-    fn on_b(&mut self) {
-        eprintln!("got event B");
+impl<'a> MyMachineContext<'a> {
+    fn on_b(&mut self, n: u32) {
+        eprintln!("got event B({})", n);
+        *self.dataref = n;
     }
     fn is_even_p(&self, n: u32) -> bool {
         n % 2 == 0
@@ -85,7 +88,9 @@ impl MyMachineContext {
 
 #[test]
 fn prototype() {
-    let mut m = MyMachine::new(MyMachineContext {});
+    let mut data: u32 = 0;
+    let ctx = MyMachineContext { dataref: &mut data };
+    let mut m = MyMachine::new(ctx);
     let r = m.process(EventB(2));
     assert_eq!(r, umlstate::ProcessResult::Unhandled);
     m.state_config()
@@ -98,4 +103,5 @@ fn prototype() {
         .unwrap();
     m.process(EventB(1));
     m.process(EventB(4));
+    assert_eq!(data, 4);
 }

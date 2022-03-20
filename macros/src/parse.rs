@@ -28,6 +28,7 @@ impl Parse for UmlState {
 pub struct Machine {
     pub machine_token: kw::machine,
     pub ident: syn::Ident,
+    pub generics: syn::Generics,
     pub brace_token: syn::token::Brace,
     pub items: Vec<MachineItem>,
 }
@@ -38,6 +39,7 @@ impl Parse for Machine {
         Ok(Machine {
             machine_token: input.parse()?,
             ident: input.parse()?,
+            generics: input.parse()?,
             brace_token: syn::braced!(content in input),
             items: {
                 let mut items = Vec::new();
@@ -246,7 +248,7 @@ mod tests {
     #[test]
     fn parse_umlstate() {
         let _sm: UmlState = parse_quote! {
-            machine Foo {
+            machine Foo<'a> {
                 state S1;
                 state S2;
 
