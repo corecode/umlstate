@@ -108,17 +108,32 @@ fn generate_submachine(
     let process_states = machine.states.iter().map(|state| {
         let state_name = &state.ident;
 
+        let exit_action = state.submachine_field.as_ref().map(|field_ident| {
+            quote! {
+                self.#field_ident.exit(ctx);
+            }
+        });
+
         let transitions = state.out_transitions.iter().map(|t| {
             let event = &t.event;
             let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
             let target = &t.target;
             let action = &t.action;
             let guard = t.guard.as_ref().map(|g| quote! { if #g });
+
+            let entry_action = t.target_machine.as_ref().map(|field_ident| {
+                quote! {
+                    self.#field_ident.enter(ctx);
+                }
+            });
+
             quote! {
                 Event::#event(event #event_pat) #guard => {
                     let ctx = mut_ctx;
+                    #exit_action
                     #action;
                     self.state = #state_type::#target;
+                    #entry_action
                     ::umlstate::ProcessResult::Handled
                 }
             }
@@ -173,6 +188,13 @@ fn generate_submachine(
                 match self.state {
                     #(#process_states),*
                 }
+            }
+
+            fn enter(&mut self, ctx: &mut #context) {
+                self.state = #state_type::#initial_state;
+            }
+
+            fn exit(&mut self, ctx: &mut #context) {
             }
         }
 

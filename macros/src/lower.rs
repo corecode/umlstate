@@ -32,6 +32,7 @@ pub struct OutTransition {
     pub target: syn::Ident,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
+    pub target_machine: Option<syn::Ident>,
 }
 
 struct EventTracker {
@@ -101,7 +102,16 @@ fn lower_submachine(machine: &analyze::Machine, events: &mut EventTracker) -> Su
             out_transitions: v
                 .out_transitions
                 .iter()
-                .map(|t| lower_transition(t, events))
+                .map(|t| {
+                    let mut t = lower_transition(t, events);
+                    if let Some(analyze::State {
+                        is_machine: true, ..
+                    }) = machine.states.get(&t.target)
+                    {
+                        t.target_machine = Some(state_field_ident(&t.target))
+                    }
+                    t
+                })
                 .collect(),
         })
         .collect();
@@ -127,6 +137,7 @@ fn lower_transition(
         target: transition.target.clone(),
         action: transition.action.clone(),
         guard: transition.guard.clone(),
+        target_machine: None,
     }
 }
 
