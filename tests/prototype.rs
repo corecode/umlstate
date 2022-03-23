@@ -1,76 +1,177 @@
 use umlstate::EventProcessor;
 
+#[derive(Clone)]
 struct EventA;
+
+#[derive(Clone)]
 struct EventB(u32);
+
+#[derive(Clone)]
+struct EventC;
 
 mod mymachine_mod {
     use super::*;
 
-    pub enum State {
-        State1,
-        State2,
-    }
-
+    #[derive(Clone)]
     enum Event {
         EventA(EventA),
         EventB(EventB),
+        EventC(EventC),
+    }
+
+    pub enum MyMachineState {
+        State1,
+        State2,
+        SubMachine1,
+    }
+
+    struct MyMachineImpl {
+        state: MyMachineState,
+        submachine1: SubMachine1Impl,
+    }
+
+    impl MyMachineImpl {
+        fn new() -> Self {
+            MyMachineImpl {
+                state: MyMachineState::State1,
+                submachine1: SubMachine1Impl::new(),
+            }
+        }
+        fn state_config(&self) -> std::vec::IntoIter<&MyMachineState> {
+            vec![&self.state].into_iter()
+        }
+
+        fn process_internal(
+            &mut self,
+            mut_ctx: &mut MyMachineContext,
+            event: Event,
+        ) -> umlstate::ProcessResult {
+            let ctx: &MyMachineContext = mut_ctx;
+            match self.state {
+                MyMachineState::State1 => match event {
+                    Event::EventA(_event) => {
+                        self.state = MyMachineState::State2;
+                        umlstate::ProcessResult::Handled
+                    }
+                    _ => umlstate::ProcessResult::Unhandled,
+                },
+                MyMachineState::State2 => match event {
+                    Event::EventA(_event) => {
+                        self.state = MyMachineState::SubMachine1;
+                        self.submachine1.enter(mut_ctx);
+                        umlstate::ProcessResult::Handled
+                    }
+                    Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
+                        let ctx = mut_ctx;
+                        ctx.on_b(n);
+                        self.state = MyMachineState::State1;
+                        umlstate::ProcessResult::Handled
+                    }
+                    _ => umlstate::ProcessResult::Unhandled,
+                },
+                MyMachineState::SubMachine1 => {
+                    match self.submachine1.process_internal(mut_ctx, event.clone()) {
+                        umlstate::ProcessResult::Handled => umlstate::ProcessResult::Handled,
+                        umlstate::ProcessResult::Unhandled => match event {
+                            Event::EventA(_event) => {
+                                self.submachine1.exit(mut_ctx);
+                                self.state = MyMachineState::State1;
+                                umlstate::ProcessResult::Handled
+                            }
+                            _ => umlstate::ProcessResult::Unhandled,
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+    pub enum SubMachine1State {
+        StateA,
+        StateB,
+    }
+
+    struct SubMachine1Impl {
+        state: SubMachine1State,
+    }
+
+    impl SubMachine1Impl {
+        fn new() -> Self {
+            SubMachine1Impl {
+                state: SubMachine1State::StateA,
+            }
+        }
+
+        fn state_config(&self) -> std::vec::IntoIter<&SubMachine1State> {
+            vec![&self.state].into_iter()
+        }
+
+        fn enter(&mut self, _mut_ctx: &mut MyMachineContext) {}
+        fn exit(&mut self, _mut_ctx: &mut MyMachineContext) {}
+
+        fn process_internal(
+            &mut self,
+            mut_ctx: &mut MyMachineContext,
+            event: Event,
+        ) -> umlstate::ProcessResult {
+            let _ctx: &MyMachineContext = mut_ctx;
+            match self.state {
+                SubMachine1State::StateA => match event {
+                    Event::EventC(_event) => {
+                        self.state = SubMachine1State::StateB;
+                        umlstate::ProcessResult::Handled
+                    }
+                    _ => umlstate::ProcessResult::Unhandled,
+                },
+                SubMachine1State::StateB => match event {
+                    _ => umlstate::ProcessResult::Unhandled,
+                },
+            }
+        }
     }
 
     pub(crate) struct Machine<'a> {
         pub context: MyMachineContext<'a>,
-        state: State,
+        machine: MyMachineImpl,
     }
 
     impl<'a> Machine<'a> {
         pub fn new(context: MyMachineContext<'a>) -> Self {
             Machine {
                 context,
-                state: State::State1,
+                machine: MyMachineImpl::new(),
             }
         }
 
-        pub fn state_config(&self) -> std::vec::IntoIter<&State> {
-            vec![&self.state].into_iter()
-        }
-
-        fn process_internal(&mut self, event: Event) -> umlstate::ProcessResult {
-            let ctx = &self.context;
-            match self.state {
-                State::State1 => match event {
-                    Event::EventA(_event) => {
-                        self.state = State::State2;
-                        umlstate::ProcessResult::Handled
-                    }
-                    _ => umlstate::ProcessResult::Unhandled,
-                },
-                State::State2 => match event {
-                    Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
-                        let ctx = &mut self.context;
-                        ctx.on_b(n);
-                        self.state = State::State1;
-                        umlstate::ProcessResult::Handled
-                    }
-                    _ => umlstate::ProcessResult::Unhandled,
-                },
-            }
+        pub fn state_config(&self) -> std::vec::IntoIter<&MyMachineState> {
+            self.machine.state_config()
         }
     }
 
     impl<'a> EventProcessor<EventA> for Machine<'a> {
         fn process(&mut self, event: EventA) -> umlstate::ProcessResult {
-            self.process_internal(Event::EventA(event))
+            self.machine
+                .process_internal(&mut self.context, Event::EventA(event))
         }
     }
 
     impl<'a> EventProcessor<EventB> for Machine<'a> {
         fn process(&mut self, event: EventB) -> umlstate::ProcessResult {
-            self.process_internal(Event::EventB(event))
+            self.machine
+                .process_internal(&mut self.context, Event::EventB(event))
+        }
+    }
+
+    impl<'a> EventProcessor<EventC> for Machine<'a> {
+        fn process(&mut self, event: EventC) -> umlstate::ProcessResult {
+            self.machine
+                .process_internal(&mut self.context, Event::EventC(event))
         }
     }
 }
 
 use mymachine_mod::Machine as MyMachine;
-use mymachine_mod::State as MyMachineState;
+use mymachine_mod::MyMachineState;
 
 struct MyMachineContext<'a> {
     dataref: &'a mut u32,
@@ -103,5 +204,32 @@ fn prototype() {
         .unwrap();
     m.process(EventB(1));
     m.process(EventB(4));
+
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::State1))
+        .unwrap();
+    m.process(EventA {});
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::State2))
+        .unwrap();
+    m.process(EventA {});
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::SubMachine1))
+        .unwrap();
+    // m.state_config()
+    //     .find(|s| matches!(s, SubMachine1State::StateA))
+    //     .unwrap();
+    m.process(EventC {});
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::SubMachine1))
+        .unwrap();
+    // m.state_config()
+    //     .find(|s| matches!(s, SubMachine1State::StateB))
+    //     .unwrap();
+    m.process(EventA {});
+    m.state_config()
+        .find(|s| matches!(s, MyMachineState::State1))
+        .unwrap();
+
     assert_eq!(data, 4);
 }

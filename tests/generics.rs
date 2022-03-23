@@ -1,5 +1,6 @@
 use umlstate::*;
 
+#[derive(Clone)]
 struct E;
 
 umlstate! {

@@ -54,6 +54,7 @@ impl Parse for Machine {
 
 pub enum MachineItem {
     State(ItemState),
+    Machine(Box<Machine>),
     Transition(ItemTransition),
 }
 
@@ -90,6 +91,9 @@ impl Parse for MachineItem {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         if input.peek(kw::state) {
             return Ok(MachineItem::State(input.parse()?));
+        }
+        if input.peek(kw::machine) {
+            return Ok(MachineItem::Machine(input.parse()?));
         }
         Ok(MachineItem::Transition(input.parse()?))
     }
@@ -191,6 +195,7 @@ impl ToTokens for MachineItem {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             MachineItem::State(s) => s.to_tokens(tokens),
+            MachineItem::Machine(m) => m.to_tokens(tokens),
             MachineItem::Transition(t) => t.to_tokens(tokens),
         }
     }
@@ -250,11 +255,16 @@ mod tests {
         let _sm: UmlState = parse_quote! {
             machine Foo<'a> {
                 state S1;
-                state S2;
 
-                S1 + E2(n) => S2 / print2;
-                S2 + E1 => S1
+                S1 + E2(n) => M2 / print2;
+                M2 + E1 => S1
                     if some_cond();
+
+                machine M2 {
+                    state A;
+                    state B;
+                    A + E1 => B;
+                }
             }
         };
     }

@@ -1,25 +1,22 @@
 use quote::{format_ident, quote};
 
-use crate::analyze;
+use crate::lower;
 
-pub fn generate(model: analyze::Model) -> proc_macro2::TokenStream {
+pub fn generate(model: &lower::Model) -> proc_macro2::TokenStream {
     let mut tt = proc_macro2::TokenStream::default();
 
-    for m in model.items {
-        tt.extend(generate_machine(&m));
+    for m in &model.machines {
+        tt.extend(generate_machine(m));
     }
 
     tt
 }
 
-fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
-    let ident = &machine.ident;
+fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
+    let ident = &machine.machine.type_ident;
     let generics = &machine.generics;
     let context = format_ident!("{}Context", ident);
-    let statename = format_ident!("{}State", ident);
     let modname = format_ident!("{}_mod", ident.to_string().to_lowercase());
-
-    let state_decl = machine.states.keys();
 
     let event_decl = machine.events.iter().map(|(path, ident)| {
         quote! {
@@ -31,15 +28,86 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
         quote! {
             impl #generics ::umlstate::EventProcessor<#path> for Machine #generics {
                 fn process(&mut self, event: #path) -> ::umlstate::ProcessResult {
-                    self.process_internal(Event::#ident(event))
+                    self.machine.process_internal(&mut self.context, Event::#ident(event))
                 }
             }
         }
     });
 
-    let initial_state = &machine.initial_state;
+    let topmachine_name = &machine.machine.type_ident;
+    let machine_decl = generate_submachine(&machine.machine, &context);
 
-    let process_states = machine.states.iter().map(|(statename, state)| {
+    quote! {
+        mod #modname {
+            use super::*;
+
+            #[derive(Clone)]
+            enum Event {
+                #(#event_decl),*
+            }
+
+            pub(crate) struct Machine #generics {
+                pub context: #context #generics,
+                machine: #topmachine_name,
+            }
+
+            impl #generics Machine #generics {
+                pub fn new(context: #context #generics) -> Self {
+                    Machine {
+                        context,
+                        machine: #topmachine_name ::new()
+                    }
+                }
+
+                // pub fn state_config(&self) -> std::vec::IntoIter<&#statename> {
+                //     self.machine.state_config()
+                // }
+            }
+
+            #(#process_impls)*
+
+            #machine_decl
+        }
+
+        // use #modname::State as #statename;
+        use #modname::Machine as #ident;
+    }
+}
+
+fn generate_submachine(
+    machine: &lower::SubMachine,
+    context: &syn::Ident,
+) -> proc_macro2::TokenStream {
+    let machine_name = &machine.type_ident;
+    let state_type = format_ident!("{}State", machine.type_ident);
+
+    let initial_state = &machine.initial_state;
+    let state_decl = machine.states.iter().map(|s| s.ident.clone());
+
+    let submachine_fields = machine.machines.iter().map(|m| {
+        let type_ident = &m.type_ident;
+        let field_ident = &m.field_ident;
+        quote! {
+            #field_ident: #type_ident
+        }
+    });
+
+    let submachines = machine
+        .machines
+        .iter()
+        .map(|m| generate_submachine(m, context));
+
+    let submachine_init = machine.machines.iter().map(|m| {
+        let type_ident = &m.type_ident;
+        let field_ident = &m.field_ident;
+        quote! {
+            #field_ident: #type_ident::new()
+        }
+    });
+
+    let process_states = machine.states.iter().map(|state| {
+        let state_name = &state.ident;
+
         let transitions = state.out_transitions.iter().map(|t| {
             let event = &t.event;
             let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
@@ -48,63 +116,67 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
             let guard = t.guard.as_ref().map(|g| quote! { if #g });
             quote! {
                 Event::#event(event #event_pat) #guard => {
-                    let ctx = &mut self.context;
+                    let ctx = mut_ctx;
                     #action;
-                    self.state = State::#target;
+                    self.state = #state_type::#target;
                     ::umlstate::ProcessResult::Handled
                 }
             }
         });
-        quote! {
-            State::#statename => match event {
+        let event_handlers = quote! {
+            match event {
                 #(#transitions),*
                 _ => ::umlstate::ProcessResult::Unhandled,
             }
+        };
+
+        let state_handler = match &state.submachine_field {
+            None => event_handlers,
+            Some(field_ident) => quote! {
+                match self.#field_ident.process_internal(mut_ctx, event.clone()) {
+                    ::umlstate::ProcessResult::Handled => ::umlstate::ProcessResult::Handled,
+                    ::umlstate::ProcessResult::Unhandled => #event_handlers,
+                }
+            },
+        };
+
+        quote! {
+            #state_type::#state_name => #state_handler
         }
     });
 
     quote! {
-        mod #modname {
-            use super::*;
-
-            #[derive(Debug)]
-            pub enum State {
-                #(#state_decl),*
-            }
-
-            enum Event {
-                #(#event_decl),*
-            }
-
-            pub(crate) struct Machine #generics {
-                pub context: #context #generics,
-                state: State,
-            }
-
-            impl #generics Machine #generics {
-                pub fn new(context: #context #generics) -> Self {
-                    Machine {
-                        context,
-                        state: State::#initial_state,
-                    }
-                }
-
-                pub fn state_config(&self) -> std::vec::IntoIter<&State> {
-                    vec![&self.state].into_iter()
-                }
-
-                fn process_internal(&mut self, event: Event) -> ::umlstate::ProcessResult {
-                    match self.state {
-                        #(#process_states),*
-                    }
-                }
-            }
-
-            #(#process_impls)*
+        #[derive(Debug)]
+        pub enum #state_type {
+            #(#state_decl),*
         }
 
-        use #modname::Machine as #ident;
-        use #modname::State as #statename;
+        struct #machine_name {
+            state: #state_type,
+            #(#submachine_fields),*
+        }
+
+        impl #machine_name {
+            pub fn new() -> Self {
+                Self {
+                    state: #state_type::#initial_state,
+                    #(#submachine_init),*
+                }
+            }
+
+            pub fn state_config(&self) -> ::std::vec::IntoIter<&#state_type> {
+                vec![&self.state].into_iter()
+            }
+
+            fn process_internal(&mut self, mut_ctx: &mut #context, event: Event) -> ::umlstate::ProcessResult {
+                let ctx = &mut_ctx;
+                match self.state {
+                    #(#process_states),*
+                }
+            }
+        }
+
+        #(#submachines)*
     }
 }
 
@@ -112,7 +184,7 @@ fn generate_machine(machine: &analyze::Machine) -> proc_macro2::TokenStream {
 mod tests {
     use super::*;
 
-    use crate::parse;
+    use crate::{analyze, parse};
 
     #[test]
     fn basic() {
@@ -124,6 +196,7 @@ mod tests {
         };
 
         let model = analyze::analyze(ast).unwrap();
-        let _code = generate(model);
+        let lower_model = lower::lower(model);
+        let _code = generate(&lower_model);
     }
 }
