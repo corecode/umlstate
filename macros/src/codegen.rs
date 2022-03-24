@@ -59,6 +59,10 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
                     }
                 }
 
+                pub fn start(&mut self) {
+                    self.machine.enter(&mut self.context);
+                }
+
                 // pub fn state_config(&self) -> std::vec::IntoIter<&#statename> {
                 //     self.machine.state_config()
                 // }
@@ -83,6 +87,8 @@ fn generate_submachine(
 
     let initial_state = &machine.initial_state;
     let state_decl = machine.states.iter().map(|s| s.ident.clone());
+
+    let invalid_state_str = format!("{} received event while in invalid state", machine_name);
 
     let submachine_fields = machine.machines.iter().map(|m| {
         let type_ident = &m.type_ident;
@@ -163,6 +169,8 @@ fn generate_submachine(
     quote! {
         #[derive(Debug)]
         pub enum #state_type {
+            __NotStarted,
+            __Exited,
             #(#state_decl),*
         }
 
@@ -174,7 +182,7 @@ fn generate_submachine(
         impl #machine_name {
             pub fn new() -> Self {
                 Self {
-                    state: #state_type::#initial_state,
+                    state: #state_type::__NotStarted,
                     #(#submachine_init),*
                 }
             }
@@ -187,6 +195,9 @@ fn generate_submachine(
                 let ctx = &mut_ctx;
                 match self.state {
                     #(#process_states),*
+                    #state_type::__NotStarted | #state_type::__Exited => {
+                        panic!(#invalid_state_str);
+                    }
                 }
             }
 
@@ -195,6 +206,7 @@ fn generate_submachine(
             }
 
             fn exit(&mut self, ctx: &mut #context) {
+                self.state = #state_type::__Exited;
             }
         }
 

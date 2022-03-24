@@ -20,6 +20,7 @@ fn basic() {
     let mut b = Generics::new(GenericsContext {
         called: &mut called,
     });
+    b.start();
     b.process(E);
     assert!(*b.context.called);
 }

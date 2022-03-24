@@ -32,6 +32,7 @@ struct BasicContext {
 #[test]
 fn basic() {
     let mut b = Basic::new(BasicContext { called: false });
+    b.start();
     // assert_eq!(b.state_config().count(), 1);
     // assert!(b.state_config().any(|s| matches!(s, BasicState::A)));
     let r = b.process(E2);

@@ -20,9 +20,11 @@ mod mymachine_mod {
     }
 
     pub enum MyMachineState {
+        __NotStarted,
+        __Exited,
         State1,
         State2,
-        SubMachine1,
+        SubMachine1(SubMachine1State),
     }
 
     struct MyMachineImpl {
@@ -33,7 +35,7 @@ mod mymachine_mod {
     impl MyMachineImpl {
         fn new() -> Self {
             MyMachineImpl {
-                state: MyMachineState::State1,
+                state: MyMachineState::__NotStarted,
                 submachine1: SubMachine1Impl::new(),
             }
         }
@@ -57,7 +59,7 @@ mod mymachine_mod {
                 },
                 MyMachineState::State2 => match event {
                     Event::EventA(_event) => {
-                        self.state = MyMachineState::SubMachine1;
+                        self.state = MyMachineState::SubMachine1(SubMachine1State::__NotStarted);
                         self.submachine1.enter(mut_ctx);
                         umlstate::ProcessResult::Handled
                     }
@@ -69,7 +71,7 @@ mod mymachine_mod {
                     }
                     _ => umlstate::ProcessResult::Unhandled,
                 },
-                MyMachineState::SubMachine1 => {
+                MyMachineState::SubMachine1(_) => {
                     match self.submachine1.process_internal(mut_ctx, event.clone()) {
                         umlstate::ProcessResult::Handled => umlstate::ProcessResult::Handled,
                         umlstate::ProcessResult::Unhandled => match event {
@@ -82,11 +84,24 @@ mod mymachine_mod {
                         },
                     }
                 }
+                MyMachineState::__NotStarted | MyMachineState::__Exited => {
+                    panic!("MyMachine received event while in invalid state")
+                }
             }
+        }
+
+        fn enter(&mut self, _ctx: &mut MyMachineContext) {
+            self.state = MyMachineState::State1;
+        }
+
+        fn exit(&mut self, _ctx: &mut MyMachineContext) {
+            self.state = MyMachineState::__Exited;
         }
     }
 
     pub enum SubMachine1State {
+        __NotStarted,
+        __Exited,
         StateA,
         StateB,
     }
@@ -98,7 +113,7 @@ mod mymachine_mod {
     impl SubMachine1Impl {
         fn new() -> Self {
             SubMachine1Impl {
-                state: SubMachine1State::StateA,
+                state: SubMachine1State::__NotStarted,
             }
         }
 
@@ -106,8 +121,13 @@ mod mymachine_mod {
             vec![&self.state].into_iter()
         }
 
-        fn enter(&mut self, _mut_ctx: &mut MyMachineContext) {}
-        fn exit(&mut self, _mut_ctx: &mut MyMachineContext) {}
+        fn enter(&mut self, _ctx: &mut MyMachineContext) {
+            self.state = SubMachine1State::StateA;
+        }
+
+        fn exit(&mut self, _ctx: &mut MyMachineContext) {
+            self.state = SubMachine1State::__Exited;
+        }
 
         fn process_internal(
             &mut self,
@@ -126,6 +146,9 @@ mod mymachine_mod {
                 SubMachine1State::StateB => match event {
                     _ => umlstate::ProcessResult::Unhandled,
                 },
+                SubMachine1State::__NotStarted | SubMachine1State::__Exited => {
+                    panic!("SubMachine1 received event while in invalid state")
+                }
             }
         }
     }
@@ -141,6 +164,10 @@ mod mymachine_mod {
                 context,
                 machine: MyMachineImpl::new(),
             }
+        }
+
+        pub fn start(&mut self) {
+            self.machine.enter(&mut self.context);
         }
 
         pub fn state_config(&self) -> std::vec::IntoIter<&MyMachineState> {
@@ -192,6 +219,7 @@ fn prototype() {
     let mut data: u32 = 0;
     let ctx = MyMachineContext { dataref: &mut data };
     let mut m = MyMachine::new(ctx);
+    m.start();
     let r = m.process(EventB(2));
     assert_eq!(r, umlstate::ProcessResult::Unhandled);
     m.state_config()
@@ -214,14 +242,14 @@ fn prototype() {
         .unwrap();
     m.process(EventA {});
     m.state_config()
-        .find(|s| matches!(s, MyMachineState::SubMachine1))
+        .find(|s| matches!(s, MyMachineState::SubMachine1(_)))
         .unwrap();
     // m.state_config()
     //     .find(|s| matches!(s, SubMachine1State::StateA))
     //     .unwrap();
     m.process(EventC {});
     m.state_config()
-        .find(|s| matches!(s, MyMachineState::SubMachine1))
+        .find(|s| matches!(s, MyMachineState::SubMachine1(_)))
         .unwrap();
     // m.state_config()
     //     .find(|s| matches!(s, SubMachine1State::StateB))
