@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use quote::format_ident;
+
 use crate::analyze;
 
 pub struct Model {
@@ -15,6 +17,7 @@ pub struct TopMachine {
 pub struct SubMachine {
     pub type_ident: syn::Ident,
     pub field_ident: syn::Ident,
+    pub state_type: syn::Ident,
     pub initial_state: syn::Ident,
     pub states: Vec<State>,
     pub machines: Vec<SubMachine>,
@@ -67,7 +70,7 @@ pub fn lower(model: analyze::Model) -> Model {
 
 fn lower_machine(machine: &analyze::Machine) -> TopMachine {
     let mut events = EventTracker::new();
-    let submachine = lower_submachine(machine, &mut events);
+    let submachine = lower_submachine(machine, &mut events, "");
 
     TopMachine {
         generics: machine.generics.clone(),
@@ -83,11 +86,19 @@ fn state_field_ident(state: &syn::Ident) -> syn::Ident {
     )
 }
 
-fn lower_submachine(machine: &analyze::Machine, events: &mut EventTracker) -> SubMachine {
+fn lower_submachine(
+    machine: &analyze::Machine,
+    events: &mut EventTracker,
+    prefix: &str,
+) -> SubMachine {
+    let type_ident = machine.ident.clone();
+    let field_ident = state_field_ident(&type_ident);
+    let state_type = format_ident!("{}{}State", prefix, &type_ident);
+
     let machines = machine
         .machines
         .values()
-        .map(|m| lower_submachine(m, events))
+        .map(|m| lower_submachine(m, events, format!("{}{}", prefix, &type_ident).as_str()))
         .collect();
 
     let states = machine
@@ -117,8 +128,9 @@ fn lower_submachine(machine: &analyze::Machine, events: &mut EventTracker) -> Su
         .collect();
 
     SubMachine {
-        type_ident: machine.ident.clone(),
-        field_ident: state_field_ident(&machine.ident),
+        type_ident,
+        field_ident,
+        state_type,
         initial_state: machine.initial_state.clone(),
         states,
         machines,

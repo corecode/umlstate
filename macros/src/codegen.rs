@@ -35,6 +35,7 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
     });
 
     let topmachine_name = &machine.machine.type_ident;
+    let topmachine_state = &machine.machine.state_type;
     let machine_decl = generate_submachine(&machine.machine, &context);
 
     quote! {
@@ -63,9 +64,9 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
                     self.machine.enter(&mut self.context);
                 }
 
-                // pub fn state_config(&self) -> std::vec::IntoIter<&#statename> {
-                //     self.machine.state_config()
-                // }
+                pub fn state_config(&self) -> std::vec::IntoIter<&#topmachine_state> {
+                    self.machine.state_config()
+                }
             }
 
             #(#process_impls)*
@@ -73,7 +74,7 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
             #machine_decl
         }
 
-        // use #modname::State as #statename;
+        use #modname::#topmachine_state;
         use #modname::Machine as #ident;
     }
 }
@@ -83,12 +84,13 @@ fn generate_submachine(
     context: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let machine_name = &machine.type_ident;
-    let state_type = format_ident!("{}State", machine.type_ident);
+    let state_type = &machine.state_type;
 
     let initial_state = &machine.initial_state;
-    let state_decl = machine.states.iter().map(|s| s.ident.clone());
 
     let invalid_state_str = format!("{} received event while in invalid state", machine_name);
+
+    let state_decl = machine.states.iter().map(|s| s.ident.clone());
 
     let submachine_fields = machine.machines.iter().map(|m| {
         let type_ident = &m.type_ident;
@@ -152,8 +154,11 @@ fn generate_submachine(
         };
 
         let state_handler = match &state.submachine_field {
-            None => event_handlers,
+            None => quote! {
+                #state_type::#state_name => #event_handlers
+            },
             Some(field_ident) => quote! {
+                #state_type::#state_name =>
                 match self.#field_ident.process_internal(mut_ctx, event.clone()) {
                     ::umlstate::ProcessResult::Handled => ::umlstate::ProcessResult::Handled,
                     ::umlstate::ProcessResult::Unhandled => #event_handlers,
@@ -161,9 +166,7 @@ fn generate_submachine(
             },
         };
 
-        quote! {
-            #state_type::#state_name => #state_handler
-        }
+        state_handler
     });
 
     quote! {

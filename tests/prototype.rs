@@ -24,7 +24,7 @@ mod mymachine_mod {
         __Exited,
         State1,
         State2,
-        SubMachine1(SubMachine1State),
+        SubMachine1,
     }
 
     struct MyMachineImpl {
@@ -59,7 +59,7 @@ mod mymachine_mod {
                 },
                 MyMachineState::State2 => match event {
                     Event::EventA(_event) => {
-                        self.state = MyMachineState::SubMachine1(SubMachine1State::__NotStarted);
+                        self.state = MyMachineState::SubMachine1;
                         self.submachine1.enter(mut_ctx);
                         umlstate::ProcessResult::Handled
                     }
@@ -71,7 +71,7 @@ mod mymachine_mod {
                     }
                     _ => umlstate::ProcessResult::Unhandled,
                 },
-                MyMachineState::SubMachine1(_) => {
+                MyMachineState::SubMachine1 => {
                     match self.submachine1.process_internal(mut_ctx, event.clone()) {
                         umlstate::ProcessResult::Handled => umlstate::ProcessResult::Handled,
                         umlstate::ProcessResult::Unhandled => match event {
@@ -242,14 +242,14 @@ fn prototype() {
         .unwrap();
     m.process(EventA {});
     m.state_config()
-        .find(|s| matches!(s, MyMachineState::SubMachine1(_)))
+        .find(|s| matches!(s, MyMachineState::SubMachine1))
         .unwrap();
     // m.state_config()
     //     .find(|s| matches!(s, SubMachine1State::StateA))
     //     .unwrap();
     m.process(EventC {});
     m.state_config()
-        .find(|s| matches!(s, MyMachineState::SubMachine1(_)))
+        .find(|s| matches!(s, MyMachineState::SubMachine1))
         .unwrap();
     // m.state_config()
     //     .find(|s| matches!(s, SubMachine1State::StateB))
