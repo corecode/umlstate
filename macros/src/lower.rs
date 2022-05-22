@@ -9,14 +9,16 @@ pub struct Model {
 }
 
 pub struct TopMachine {
-    pub generics: syn::Generics,
     pub events: Vec<(syn::Path, syn::Ident)>,
     pub machine: SubMachine,
 }
 
 pub struct SubMachine {
+    pub vis: syn::Visibility,
     pub type_ident: syn::Ident,
     pub field_ident: syn::Ident,
+    pub generics: syn::Generics,
+    pub context_type: Option<syn::Ident>,
     pub state_type: syn::Ident,
     pub initial_state: syn::Ident,
     pub states: Vec<State>,
@@ -73,7 +75,6 @@ fn lower_machine(machine: &analyze::Machine) -> TopMachine {
     let submachine = lower_submachine(machine, &mut events, "");
 
     TopMachine {
-        generics: machine.generics.clone(),
         events: events.map.into_iter().collect(),
         machine: submachine,
     }
@@ -93,7 +94,15 @@ fn lower_submachine(
 ) -> SubMachine {
     let type_ident = machine.ident.clone();
     let field_ident = state_field_ident(&type_ident);
+    let context_type = machine.context.clone();
     let state_type = format_ident!("{}{}State", prefix, &type_ident);
+    let mut generics = machine.generics.clone();
+
+    if let Some(ctx) = &context_type {
+        generics.params.push_value(syn::GenericParam::Type(
+            syn::parse_quote! { __ContextT: #ctx },
+        ));
+    }
 
     let machines = machine
         .machines
@@ -128,8 +137,11 @@ fn lower_submachine(
         .collect();
 
     SubMachine {
+        vis: machine.vis.clone(),
         type_ident,
         field_ident,
+        generics,
+        context_type,
         state_type,
         initial_state: machine.initial_state.clone(),
         states,

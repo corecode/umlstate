@@ -9,9 +9,11 @@ pub struct Model {
 }
 
 pub struct Machine {
+    pub vis: syn::Visibility,
     pub ident: syn::Ident,
     pub generics: syn::Generics,
     pub initial_state: syn::Ident,
+    pub context: Option<syn::Ident>,
     pub states: HashMap<syn::Ident, State>,
     pub machines: HashMap<syn::Ident, Machine>,
 }
@@ -46,6 +48,7 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
     let mut states = HashMap::new();
     let mut machines = HashMap::new();
     let mut initial_state: Option<syn::Ident> = None;
+    let mut context: Option<syn::Ident> = None;
 
     for it in &machine.items {
         match it {
@@ -89,6 +92,15 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
                         "machine declared as state before",
                     ));
                 }
+            }
+            parse::MachineItem::Context(c) => {
+                if context.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &c,
+                        "duplicate declaration of context",
+                    ));
+                }
+                context = Some(c.ident.clone());
             }
             parse::MachineItem::Transition(_) => (),
         }
@@ -142,12 +154,15 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
             }
             parse::MachineItem::State(_) => (),
             parse::MachineItem::Machine(_) => (),
+            parse::MachineItem::Context(_) => (),
         }
     }
 
     Ok(Machine {
+        vis: machine.vis.clone(),
         ident: machine.ident.clone(),
         generics: machine.generics.clone(),
+        context,
         initial_state: initial_state
             .ok_or_else(|| syn::Error::new_spanned(&machine, "no initial state declared"))?,
         states,

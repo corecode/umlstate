@@ -24,7 +24,7 @@ mod mymachine_mod {
     }
 
     #[derive(Clone, Debug, PartialEq)]
-    pub enum MyMachineState {
+    pub(super) enum MyMachineState {
         __NotStarted,
         __Exited,
         State1,
@@ -32,20 +32,15 @@ mod mymachine_mod {
         SubMachine1,
     }
 
-    pub trait MyMachineContext {
-        fn on_b(&mut self, n: u32);
-        fn is_even_p(&self, n: u32) -> bool;
-    }
-
-    pub struct MyMachineImpl<T: MyMachineContext> {
+    pub(super) struct MyMachine<T: MyMachineContext> {
         context: Rc<RefCell<T>>,
         state: MyMachineState,
         sub_machine1: SubMachine1Impl<T>,
     }
 
-    impl<T: MyMachineContext> MyMachineImpl<T> {
+    impl<T: MyMachineContext> MyMachine<T> {
         pub fn new(context: Rc<RefCell<T>>) -> Self {
-            MyMachineImpl {
+            MyMachine {
                 context: context.clone(),
                 state: MyMachineState::__NotStarted,
                 sub_machine1: SubMachine1Impl::new(context.clone()),
@@ -115,14 +110,14 @@ mod mymachine_mod {
     }
 
     #[derive(Clone, Debug, PartialEq)]
-    pub enum SubMachine1State {
+    pub(super) enum SubMachine1State {
         __NotStarted,
         __Exited,
         StateA,
         StateB,
     }
 
-    pub struct SubMachine1Impl<T: MyMachineContext> {
+    pub(super) struct SubMachine1Impl<T: MyMachineContext> {
         context: Rc<RefCell<T>>,
         state: SubMachine1State,
     }
@@ -166,29 +161,33 @@ mod mymachine_mod {
         }
     }
 
-    impl<T: MyMachineContext> EventProcessor<EventA> for MyMachineImpl<T> {
+    impl<T: MyMachineContext> EventProcessor<EventA> for MyMachine<T> {
         fn process(&mut self, event: EventA) -> umlstate::ProcessResult {
             self.process_event(Event::EventA(event))
         }
     }
 
-    impl<T: MyMachineContext> EventProcessor<EventB> for MyMachineImpl<T> {
+    impl<T: MyMachineContext> EventProcessor<EventB> for MyMachine<T> {
         fn process(&mut self, event: EventB) -> umlstate::ProcessResult {
             self.process_event(Event::EventB(event))
         }
     }
 
-    impl<T: MyMachineContext> EventProcessor<EventC> for MyMachineImpl<T> {
+    impl<T: MyMachineContext> EventProcessor<EventC> for MyMachine<T> {
         fn process(&mut self, event: EventC) -> umlstate::ProcessResult {
             self.process_event(Event::EventC(event))
         }
     }
 }
 
-use mymachine_mod::MyMachineContext;
-use mymachine_mod::MyMachineImpl as MyMachine;
+use mymachine_mod::MyMachine;
 use mymachine_mod::MyMachineState;
 use mymachine_mod::SubMachine1State;
+
+trait MyMachineContext {
+    fn on_b(&mut self, n: u32);
+    fn is_even_p(&self, n: u32) -> bool;
+}
 
 struct MyMachineContextImpl<'a> {
     dataref: &'a mut u32,

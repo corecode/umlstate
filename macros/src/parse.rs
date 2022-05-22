@@ -5,6 +5,7 @@ use syn::{Error, Result, Token};
 mod kw {
     syn::custom_keyword!(machine);
     syn::custom_keyword!(state);
+    syn::custom_keyword!(ctx);
 }
 
 pub struct UmlState {
@@ -26,6 +27,7 @@ impl Parse for UmlState {
 }
 
 pub struct Machine {
+    pub vis: syn::Visibility,
     pub machine_token: kw::machine,
     pub ident: syn::Ident,
     pub generics: syn::Generics,
@@ -37,9 +39,10 @@ impl Parse for Machine {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         let content;
         Ok(Machine {
+            vis: input.parse()?,
             machine_token: input.parse()?,
             ident: input.parse()?,
-            generics: input.parse()?,
+            generics: syn::Generics::default(),
             brace_token: syn::braced!(content in input),
             items: {
                 let mut items = Vec::new();
@@ -54,8 +57,15 @@ impl Parse for Machine {
 
 pub enum MachineItem {
     State(ItemState),
+    Context(ItemContext),
     Machine(Box<Machine>),
     Transition(ItemTransition),
+}
+
+pub struct ItemContext {
+    pub ctx_token: kw::ctx,
+    pub ident: syn::Ident,
+    pub semi_token: Token![;],
 }
 
 pub struct ItemState {
@@ -95,6 +105,9 @@ impl Parse for MachineItem {
         if input.peek(kw::machine) {
             return Ok(MachineItem::Machine(input.parse()?));
         }
+        if input.peek(kw::ctx) {
+            return Ok(MachineItem::Context(input.parse()?));
+        }
         Ok(MachineItem::Transition(input.parse()?))
     }
 }
@@ -103,6 +116,16 @@ impl Parse for ItemState {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         Ok(ItemState {
             state_token: input.parse()?,
+            ident: input.parse()?,
+            semi_token: input.parse()?,
+        })
+    }
+}
+
+impl Parse for ItemContext {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        Ok(ItemContext {
+            ctx_token: input.parse()?,
             ident: input.parse()?,
             semi_token: input.parse()?,
         })
@@ -181,8 +204,10 @@ impl ToTokens for UmlState {
 
 impl ToTokens for Machine {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.vis.to_tokens(tokens);
         self.machine_token.to_tokens(tokens);
         self.ident.to_tokens(tokens);
+        self.generics.to_tokens(tokens);
         self.brace_token.surround(tokens, |tokens| {
             for item in self.items.iter() {
                 item.to_tokens(tokens);
@@ -195,9 +220,18 @@ impl ToTokens for MachineItem {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             MachineItem::State(s) => s.to_tokens(tokens),
+            MachineItem::Context(c) => c.to_tokens(tokens),
             MachineItem::Machine(m) => m.to_tokens(tokens),
             MachineItem::Transition(t) => t.to_tokens(tokens),
         }
+    }
+}
+
+impl ToTokens for ItemContext {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.ctx_token.to_tokens(tokens);
+        self.ident.to_tokens(tokens);
+        self.semi_token.to_tokens(tokens);
     }
 }
 
