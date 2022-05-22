@@ -61,6 +61,7 @@ mod mymachine_mod {
         }
 
         fn process_event(&mut self, event: Event) -> umlstate::ProcessResult {
+            let ctx = self.context.borrow();
             match self.state {
                 MyMachineState::State1 => match event {
                     Event::EventA(_event) => {
@@ -75,8 +76,11 @@ mod mymachine_mod {
                         self.sub_machine1.enter();
                         umlstate::ProcessResult::Handled
                     }
-                    Event::EventB(_event @ EventB(n)) if self.context.borrow().is_even_p(n) => {
-                        self.context.borrow_mut().on_b(n);
+                    Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
+                        drop(ctx);
+                        let mut ctx = self.context.borrow_mut();
+                        ctx.on_b(n);
+                        drop(ctx);
                         self.state = MyMachineState::State1;
                         umlstate::ProcessResult::Handled
                     }
