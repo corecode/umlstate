@@ -36,7 +36,7 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
     });
 
     let topmachine_state = &machine.machine.state_type;
-    let machine_decl = generate_submachine(&machine.machine, machine.machine.context_type.as_ref());
+    let machine_decl = generate_submachine(&machine.machine);
 
     quote! {
         mod #modname {
@@ -59,10 +59,7 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
     }
 }
 
-fn generate_submachine(
-    machine: &lower::SubMachine,
-    context_type: Option<&syn::Ident>,
-) -> proc_macro2::TokenStream {
+fn generate_submachine(machine: &lower::SubMachine) -> proc_macro2::TokenStream {
     let machine_name = &machine.type_ident;
     let state_type = &machine.state_type;
 
@@ -77,21 +74,20 @@ fn generate_submachine(
     let submachine_fields = machine.machines.iter().map(|m| {
         let type_ident = &m.type_ident;
         let field_ident = &m.field_ident;
+        let (_impl_generics, ty_generics, _where_clause) = m.generics.split_for_impl();
         quote! {
-            #field_ident: #type_ident<T>
+            #field_ident: #type_ident #ty_generics
         }
     });
 
-    let submachines = machine
-        .machines
-        .iter()
-        .map(|m| generate_submachine(m, context_type));
+    let submachines = machine.machines.iter().map(|m| generate_submachine(m));
 
     let submachine_init = machine.machines.iter().map(|m| {
         let type_ident = &m.type_ident;
         let field_ident = &m.field_ident;
+        let context_arg = m.context_type.as_ref().map(|_| quote! { context.clone() });
         quote! {
-            #field_ident: #type_ident::new(context.clone())
+            #field_ident: #type_ident::new(#context_arg)
         }
     });
 
@@ -102,6 +98,14 @@ fn generate_submachine(
             quote! {
                 self.#field_ident.exit();
             }
+        });
+
+        let get_ctx = machine.context_type.as_ref().map(|_| {
+            quote! { let ctx = self.context.borrow(); }
+        });
+        let drop_ctx = machine.context_type.as_ref().map(|_| quote! { drop(ctx); });
+        let mut_ctx = machine.context_type.as_ref().map(|_| {
+            quote! { let mut ctx = self.context.borrow_mut(); }
         });
 
         let transitions = state.out_transitions.iter().map(|t| {
@@ -119,10 +123,10 @@ fn generate_submachine(
 
             quote! {
                 Event::#event(event #event_pat) #guard => {
-                    drop(ctx);
+                    #drop_ctx
                     #exit_action
                     {
-                        let mut ctx = self.context.borrow_mut();
+                        #mut_ctx
                         #action;
                     }
                     self.state = #state_type::#target;
@@ -132,7 +136,7 @@ fn generate_submachine(
             }
         });
         let event_handlers = quote! {
-            let ctx = self.context.borrow();
+            #get_ctx
             match event {
                 #(#transitions),*
                 _ => ::umlstate::ProcessResult::Unhandled,
@@ -159,6 +163,19 @@ fn generate_submachine(
         state_handler
     });
 
+    let generics = &machine.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let context_field = machine.context_type.as_ref().map(|ident| {
+        quote! {
+            context: Rc<RefCell<#ident>>,
+        }
+    });
+    let context_init = machine.context_type.as_ref().map(|_ident| {
+        quote! {
+            context: context.clone(),
+        }
+    });
+
     quote! {
         #[derive(Clone, Debug, PartialEq)]
         pub(super) enum #state_type {
@@ -167,16 +184,16 @@ fn generate_submachine(
             #(#state_decl),*
         }
 
-        pub(super) struct #machine_name<T: #context_type> {
-            context: Rc<RefCell<T>>,
+        pub(super) struct #machine_name #generics {
+            #context_field
             state: #state_type,
             #(#submachine_fields),*
         }
 
-        impl<T: #context_type> #machine_name<T> {
-            pub fn new(context: Rc<RefCell<T>>) -> Self {
+        impl #impl_generics #machine_name #ty_generics #where_clause {
+            pub fn new(#context_field) -> Self {
                 Self {
-                    context: context.clone(),
+                    #context_init
                     state: #state_type::__NotStarted,
                     #(#submachine_init),*
                 }

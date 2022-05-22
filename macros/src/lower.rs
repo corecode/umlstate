@@ -72,7 +72,7 @@ pub fn lower(model: analyze::Model) -> Model {
 
 fn lower_machine(machine: &analyze::Machine) -> TopMachine {
     let mut events = EventTracker::new();
-    let submachine = lower_submachine(machine, &mut events, "");
+    let submachine = lower_submachine(machine, &mut events, "", &machine.context);
 
     TopMachine {
         events: events.map.into_iter().collect(),
@@ -91,23 +91,32 @@ fn lower_submachine(
     machine: &analyze::Machine,
     events: &mut EventTracker,
     prefix: &str,
+    context: &Option<syn::Ident>,
 ) -> SubMachine {
     let type_ident = machine.ident.clone();
     let field_ident = state_field_ident(&type_ident);
-    let context_type = machine.context.clone();
+    let mut context_type = None;
     let state_type = format_ident!("{}{}State", prefix, &type_ident);
     let mut generics = machine.generics.clone();
 
-    if let Some(ctx) = &context_type {
+    if let Some(ref ctx) = context {
+        context_type = Some(format_ident!("__ContextT"));
         generics.params.push_value(syn::GenericParam::Type(
-            syn::parse_quote! { __ContextT: #ctx },
+            syn::parse_quote! { #context_type: #ctx },
         ));
     }
 
     let machines = machine
         .machines
         .values()
-        .map(|m| lower_submachine(m, events, format!("{}{}", prefix, &type_ident).as_str()))
+        .map(|m| {
+            lower_submachine(
+                m,
+                events,
+                format!("{}{}", prefix, &type_ident).as_str(),
+                context,
+            )
+        })
         .collect();
 
     let states = machine
