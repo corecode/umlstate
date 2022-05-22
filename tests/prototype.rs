@@ -56,42 +56,51 @@ mod mymachine_mod {
         }
 
         fn process_event(&mut self, event: Event) -> umlstate::ProcessResult {
-            let ctx = self.context.borrow();
             match self.state {
-                MyMachineState::State1 => match event {
-                    Event::EventA(_event) => {
-                        self.state = MyMachineState::State2;
-                        umlstate::ProcessResult::Handled
+                MyMachineState::State1 => {
+                    let ctx = self.context.borrow();
+                    match event {
+                        Event::EventA(_event) => {
+                            self.state = MyMachineState::State2;
+                            umlstate::ProcessResult::Handled
+                        }
+                        _ => umlstate::ProcessResult::Unhandled,
                     }
-                    _ => umlstate::ProcessResult::Unhandled,
-                },
-                MyMachineState::State2 => match event {
-                    Event::EventA(_event) => {
-                        self.state = MyMachineState::SubMachine1;
-                        self.sub_machine1.enter();
-                        umlstate::ProcessResult::Handled
+                }
+                MyMachineState::State2 => {
+                    let ctx = self.context.borrow();
+                    match event {
+                        Event::EventA(_event) => {
+                            self.state = MyMachineState::SubMachine1;
+                            self.sub_machine1.enter();
+                            umlstate::ProcessResult::Handled
+                        }
+                        Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
+                            drop(ctx);
+                            {
+                                let mut ctx = self.context.borrow_mut();
+                                ctx.on_b(n);
+                            }
+                            self.state = MyMachineState::State1;
+                            umlstate::ProcessResult::Handled
+                        }
+                        _ => umlstate::ProcessResult::Unhandled,
                     }
-                    Event::EventB(_event @ EventB(n)) if ctx.is_even_p(n) => {
-                        drop(ctx);
-                        let mut ctx = self.context.borrow_mut();
-                        ctx.on_b(n);
-                        drop(ctx);
-                        self.state = MyMachineState::State1;
-                        umlstate::ProcessResult::Handled
-                    }
-                    _ => umlstate::ProcessResult::Unhandled,
-                },
+                }
                 MyMachineState::SubMachine1 => {
                     match self.sub_machine1.process_event(event.clone()) {
                         umlstate::ProcessResult::Handled => umlstate::ProcessResult::Handled,
-                        umlstate::ProcessResult::Unhandled => match event {
-                            Event::EventA(_event) => {
-                                self.sub_machine1.exit();
-                                self.state = MyMachineState::State1;
-                                umlstate::ProcessResult::Handled
+                        umlstate::ProcessResult::Unhandled => {
+                            let ctx = self.context.borrow();
+                            match event {
+                                Event::EventA(_event) => {
+                                    self.sub_machine1.exit();
+                                    self.state = MyMachineState::State1;
+                                    umlstate::ProcessResult::Handled
+                                }
+                                _ => umlstate::ProcessResult::Unhandled,
                             }
-                            _ => umlstate::ProcessResult::Unhandled,
-                        },
+                        }
                     }
                 }
                 MyMachineState::__NotStarted | MyMachineState::__Exited => {

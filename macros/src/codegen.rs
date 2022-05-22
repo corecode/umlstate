@@ -120,9 +120,11 @@ fn generate_submachine(
             quote! {
                 Event::#event(event #event_pat) #guard => {
                     drop(ctx);
-                    let mut ctx = self.context.borrow_mut();
                     #exit_action
-                    #action;
+                    {
+                        let mut ctx = self.context.borrow_mut();
+                        #action;
+                    }
                     self.state = #state_type::#target;
                     #entry_action
                     ::umlstate::ProcessResult::Handled
@@ -130,6 +132,7 @@ fn generate_submachine(
             }
         });
         let event_handlers = quote! {
+            let ctx = self.context.borrow();
             match event {
                 #(#transitions),*
                 _ => ::umlstate::ProcessResult::Unhandled,
@@ -138,13 +141,17 @@ fn generate_submachine(
 
         let state_handler = match &state.submachine_field {
             None => quote! {
-                #state_type::#state_name => #event_handlers
+                #state_type::#state_name => {
+                    #event_handlers
+                }
             },
             Some(field_ident) => quote! {
                 #state_type::#state_name =>
                 match self.#field_ident.process_event(event.clone()) {
                     ::umlstate::ProcessResult::Handled => ::umlstate::ProcessResult::Handled,
-                    ::umlstate::ProcessResult::Unhandled => #event_handlers,
+                    ::umlstate::ProcessResult::Unhandled => {
+                        #event_handlers
+                    }
                 }
             },
         };
@@ -180,7 +187,6 @@ fn generate_submachine(
             }
 
             fn process_event(&mut self, event: Event) -> ::umlstate::ProcessResult {
-                let ctx = self.context.borrow();
                 match self.state {
                     #(#process_states),*
                     #state_type::__NotStarted | #state_type::__Exited => {
