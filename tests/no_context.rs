@@ -12,6 +12,7 @@ umlstate! {
         state A;
         state C;
 
+        <*> => A;
         A + E(n) => B if n > 0;
         B + E2 => C;
 
@@ -19,6 +20,7 @@ umlstate! {
             state A;
             state X;
 
+            <*> => A;
             A + E3 => X;
         }
     }

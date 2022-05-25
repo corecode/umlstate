@@ -20,7 +20,7 @@ pub struct SubMachine {
     pub generics: syn::Generics,
     pub context_type: Option<syn::Ident>,
     pub state_type: syn::Ident,
-    pub initial_state: syn::Ident,
+    pub initial_transition: Transition,
     pub states: Vec<State>,
     pub machines: Vec<SubMachine>,
 }
@@ -28,16 +28,16 @@ pub struct SubMachine {
 pub struct State {
     pub ident: syn::Ident,
     pub submachine_field: Option<syn::Ident>,
-    pub out_transitions: Vec<OutTransition>,
+    pub out_transitions: Vec<Transition>,
 }
 
-pub struct OutTransition {
-    pub event: syn::Ident,
+pub struct Transition {
+    pub event: Option<syn::Ident>,
     pub event_pat: Option<syn::Pat>,
     pub target: syn::Ident,
+    pub target_machine: Option<syn::Ident>,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
-    pub target_machine: Option<syn::Ident>,
 }
 
 struct EventTracker {
@@ -131,19 +131,12 @@ fn lower_submachine(
             out_transitions: v
                 .out_transitions
                 .iter()
-                .map(|t| {
-                    let mut t = lower_transition(t, events);
-                    if let Some(analyze::State {
-                        is_machine: true, ..
-                    }) = machine.states.get(&t.target)
-                    {
-                        t.target_machine = Some(state_field_ident(&t.target))
-                    }
-                    t
-                })
+                .map(|t| lower_transition(t, events))
                 .collect(),
         })
         .collect();
+
+    let initial_transition = lower_transition(&machine.initial_transition, events);
 
     SubMachine {
         vis: machine.vis.clone(),
@@ -152,25 +145,28 @@ fn lower_submachine(
         generics,
         context_type,
         state_type,
-        initial_state: machine.initial_state.clone(),
+        initial_transition,
         states,
         machines,
     }
 }
 
-fn lower_transition(
-    transition: &analyze::OutTransition,
-    events: &mut EventTracker,
-) -> OutTransition {
-    let event = events.get_or_create(&transition.event_path);
+fn lower_transition(transition: &analyze::Transition, events: &mut EventTracker) -> Transition {
+    let event = transition
+        .event_path
+        .as_ref()
+        .map(|e| events.get_or_create(e));
 
-    OutTransition {
-        event,
+    Transition {
+        event: event,
         event_pat: transition.event_pat.clone(),
         target: transition.target.clone(),
+        target_machine: transition
+            .target_machine
+            .as_ref()
+            .map(|m| state_field_ident(&m)),
         action: transition.action.clone(),
         guard: transition.guard.clone(),
-        target_machine: None,
     }
 }
 
@@ -185,12 +181,14 @@ mod tests {
         let ast: parse::UmlState = syn::parse_quote! {
             machine FooBar {
                 state A;
+                <*> => A;
                 A + E => A;
                 A + E(n) => B if n > 0;
                 A + E(_) => A;
 
                 machine B {
                     state A;
+                    <*> => A;
                     A + E3 => A;
                 }
             }

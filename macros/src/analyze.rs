@@ -12,7 +12,7 @@ pub struct Machine {
     pub vis: syn::Visibility,
     pub ident: syn::Ident,
     pub generics: syn::Generics,
-    pub initial_state: syn::Ident,
+    pub initial_transition: Transition,
     pub context: Option<syn::Ident>,
     pub states: HashMap<syn::Ident, State>,
     pub machines: HashMap<syn::Ident, Machine>,
@@ -21,13 +21,14 @@ pub struct Machine {
 pub struct State {
     pub ident: syn::Ident,
     pub is_machine: bool,
-    pub out_transitions: Vec<OutTransition>,
+    pub out_transitions: Vec<Transition>,
 }
 
-pub struct OutTransition {
-    pub event_path: syn::Path,
+pub struct Transition {
+    pub event_path: Option<syn::Path>,
     pub event_pat: Option<syn::Pat>,
     pub target: syn::Ident,
+    pub target_machine: Option<syn::Ident>,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
 }
@@ -47,13 +48,12 @@ pub fn analyze(ast: parse::UmlState) -> Result<Model> {
 fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
     let mut states = HashMap::new();
     let mut machines = HashMap::new();
-    let mut initial_state: Option<syn::Ident> = None;
     let mut context: Option<syn::Ident> = None;
+    let mut initial_transition = None;
 
     for it in &machine.items {
         match it {
             parse::MachineItem::State(state) => {
-                initial_state.get_or_insert(state.ident.clone());
                 let old = states.insert(
                     state.ident.clone(),
                     State {
@@ -70,7 +70,6 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
                 }
             }
             parse::MachineItem::Machine(machine) => {
-                initial_state.get_or_insert(machine.ident.clone());
                 let old = machines.insert(machine.ident.clone(), analyze_machine(machine)?);
                 if old.is_some() {
                     return Err(syn::Error::new_spanned(
@@ -108,21 +107,59 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
 
     for it in &machine.items {
         match it {
-            parse::MachineItem::Transition(transition) => {
+            parse::MachineItem::Transition(
+                transition @ parse::ItemTransition {
+                    source: parse::TransitionSource::Initial(_),
+                    ..
+                },
+            ) => {
                 if !states.contains_key(&transition.target) {
                     return Err(syn::Error::new_spanned(
                         &transition.target,
                         "transition target is not a declared state",
                     ));
                 }
-                let state = states.get_mut(&transition.source).ok_or_else(|| {
+
+                initial_transition = Some(Transition {
+                    target: transition.target.clone(),
+                    target_machine: machines
+                        .get(&transition.target)
+                        .as_ref()
+                        .map(|m| m.ident.clone()),
+                    event_path: None,
+                    event_pat: None,
+                    action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
+                    guard: None,
+                })
+            }
+            parse::MachineItem::Transition(
+                transition @ parse::ItemTransition {
+                    source: parse::TransitionSource::State(source),
+                    ..
+                },
+            ) => {
+                if !states.contains_key(&transition.target) {
+                    return Err(syn::Error::new_spanned(
+                        &transition.target,
+                        "transition target is not a declared state",
+                    ));
+                }
+
+                let state = states.get_mut(source).ok_or_else(|| {
                     syn::Error::new_spanned(
                         &transition.source,
                         "transition source is not a declared state",
                     )
                 })?;
 
-                let event_path = match &transition.event.pat {
+                let event = &transition
+                    .event
+                    .as_ref()
+                    .ok_or_else(|| {
+                        syn::Error::new_spanned(&transition.source, "transition requires event")
+                    })?
+                    .1;
+                let event_path = match &event.pat {
                     syn::Pat::Path(p) => p.path.clone(),
                     syn::Pat::Struct(s) => s.path.clone(),
                     syn::Pat::TupleStruct(ts) => ts.path.clone(),
@@ -139,14 +176,18 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
                     },
                     _ => panic!("parsed invalid event pattern"),
                 };
-                let event_pat = match &transition.event.pat {
+                let event_pat = match &event.pat {
                     syn::Pat::Ident(_) => None,
-                    _ => Some(transition.event.pat.clone()),
+                    _ => Some(event.pat.clone()),
                 };
 
-                state.out_transitions.push(OutTransition {
+                state.out_transitions.push(Transition {
                     target: transition.target.clone(),
-                    event_path,
+                    target_machine: machines
+                        .get(&transition.target)
+                        .as_ref()
+                        .map(|m| m.ident.clone()),
+                    event_path: Some(event_path),
                     event_pat,
                     action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
                     guard: transition.guard.as_ref().map(|(_, g)| g.expr.clone()),
@@ -158,13 +199,19 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
         }
     }
 
+    let initial_transition = initial_transition.ok_or_else(|| {
+        syn::Error::new_spanned(
+            &machine,
+            "missing initial transition. help: you need one `<*> =>` transition",
+        )
+    })?;
+
     Ok(Machine {
         vis: machine.vis.clone(),
         ident: machine.ident.clone(),
         generics: machine.generics.clone(),
         context,
-        initial_state: initial_state
-            .ok_or_else(|| syn::Error::new_spanned(&machine, "no initial state declared"))?,
+        initial_transition,
         states,
         machines,
     })
@@ -179,12 +226,15 @@ mod tests {
         let ast: parse::UmlState = syn::parse_quote! {
             machine Foo {
                 state A;
+
+                <*> => A / bar();
                 A + E => A;
                 A + E(n) => B if n > 0;
                 A + E(_) => A;
 
                 machine B {
                     state A;
+                    <*> => A;
                     A + E3 => A;
                 }
             }

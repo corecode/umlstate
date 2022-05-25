@@ -18,12 +18,12 @@ umlstate! {
             state Charging;
             state ChargeDone;
 
-            //initial -> WaitCharge;
+            <*> => WaitCharge;
             WaitCharge + ChargeActive => Charging / indicate(Charge::Starting);
             Charging + ChargeInactive => ChargeDone / indicate(Charge::Done);
         }
 
-        //initial -> Unpowered / use_power(Power::Battery);
+        <*> => Unpowered / use_power(Power::Battery);
         Unpowered + UsbConnected => Powered / use_power(Power::Usb);
         Powered + UsbDisconnected => Unpowered / use_power(Power::Battery);
     }

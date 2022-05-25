@@ -63,8 +63,6 @@ fn generate_submachine(machine: &lower::SubMachine) -> proc_macro2::TokenStream 
     let machine_name = &machine.type_ident;
     let state_type = &machine.state_type;
 
-    let initial_state = &machine.initial_state;
-
     let invalid_event_state_str = format!("{} received event while in invalid state", machine_name);
     let invalid_enter_state_str = format!("{}.enter() while in active state", machine_name);
     let invalid_exit_state_str = format!("{}.exit() while in not in active state", machine_name);
@@ -104,33 +102,18 @@ fn generate_submachine(machine: &lower::SubMachine) -> proc_macro2::TokenStream 
             quote! { let ctx = self.context.borrow(); }
         });
         let drop_ctx = machine.context_type.as_ref().map(|_| quote! { drop(ctx); });
-        let mut_ctx = machine.context_type.as_ref().map(|_| {
-            quote! { let mut ctx = self.context.borrow_mut(); }
-        });
 
         let transitions = state.out_transitions.iter().map(|t| {
             let event = &t.event;
             let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
-            let target = &t.target;
-            let action = &t.action;
             let guard = t.guard.as_ref().map(|g| quote! { if #g });
-
-            let entry_action = t.target_machine.as_ref().map(|field_ident| {
-                quote! {
-                    self.#field_ident.enter();
-                }
-            });
+            let entry = generate_entry(&machine, t);
 
             quote! {
                 Event::#event(event #event_pat) #guard => {
                     #drop_ctx
                     #exit_action
-                    {
-                        #mut_ctx
-                        #action;
-                    }
-                    self.state = #state_type::#target;
-                    #entry_action
+                    #entry
                     ::umlstate::ProcessResult::Handled
                 }
             }
@@ -175,6 +158,7 @@ fn generate_submachine(machine: &lower::SubMachine) -> proc_macro2::TokenStream 
             context: context.clone(),
         }
     });
+    let enter_action = generate_entry(machine, &machine.initial_transition);
 
     quote! {
         #[derive(Clone, Debug, PartialEq)]
@@ -219,7 +203,7 @@ fn generate_submachine(machine: &lower::SubMachine) -> proc_macro2::TokenStream 
                         panic!(#invalid_enter_state_str);
                     }
                 }
-                self.state = #state_type::#initial_state;
+                #enter_action
             }
 
             pub fn exit(&mut self) {
@@ -237,6 +221,34 @@ fn generate_submachine(machine: &lower::SubMachine) -> proc_macro2::TokenStream 
     }
 }
 
+fn generate_entry(
+    machine: &lower::SubMachine,
+    transition: &lower::Transition,
+) -> proc_macro2::TokenStream {
+    let mut_ctx = machine.context_type.as_ref().map(|_| {
+        quote! { let mut ctx = self.context.borrow_mut(); }
+    });
+    let action = &transition.action;
+
+    let state_type = &machine.state_type;
+    let target = &transition.target;
+
+    let entry_action = transition.target_machine.as_ref().map(|field_ident| {
+        quote! {
+            self.#field_ident.enter();
+        }
+    });
+
+    quote! {
+        {
+            #mut_ctx
+            #action;
+        }
+        self.state = #state_type::#target;
+        #entry_action
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +260,7 @@ mod tests {
         let ast: parse::UmlState = syn::parse_quote! {
             pub(crate) machine Foo {
                 state A;
+                <*> => A;
                 A + E(_) => A;
             }
         };

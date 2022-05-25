@@ -75,14 +75,24 @@ pub struct ItemState {
 }
 
 pub struct ItemTransition {
-    pub source: syn::Ident,
-    pub plus_token: Token![+],
-    pub event: Event,
+    pub source: TransitionSource,
+    pub event: Option<(Token![+], Event)>,
     pub arrow_token: Token![=>],
     pub target: syn::Ident,
     pub action: Option<(Token![/], Action)>,
     pub guard: Option<(Token![if], Guard)>,
     pub semi_token: Token![;],
+}
+
+pub enum TransitionSource {
+    Initial(SourceInitial),
+    State(syn::Ident),
+}
+
+pub struct SourceInitial {
+    pub lt_token: Token![<],
+    pub asterisk_token: Token![*],
+    pub gt_token: Token![>],
 }
 
 pub struct Event {
@@ -136,8 +146,11 @@ impl Parse for ItemTransition {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         Ok(ItemTransition {
             source: input.parse()?,
-            plus_token: input.parse()?,
-            event: input.parse()?,
+            event: if input.peek(Token![+]) {
+                Some((input.parse()?, input.parse()?))
+            } else {
+                None
+            },
             arrow_token: input.parse()?,
             target: input.parse()?,
             action: if input.peek(Token![/]) {
@@ -151,6 +164,25 @@ impl Parse for ItemTransition {
                 None
             },
             semi_token: input.parse()?,
+        })
+    }
+}
+
+impl Parse for TransitionSource {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        if input.peek(Token![<]) {
+            return Ok(TransitionSource::Initial(input.parse()?));
+        }
+        return Ok(TransitionSource::State(input.parse()?));
+    }
+}
+
+impl Parse for SourceInitial {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        Ok(SourceInitial {
+            lt_token: input.parse()?,
+            asterisk_token: input.parse()?,
+            gt_token: input.parse()?,
         })
     }
 }
@@ -246,8 +278,10 @@ impl ToTokens for ItemState {
 impl ToTokens for ItemTransition {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         self.source.to_tokens(tokens);
-        self.plus_token.to_tokens(tokens);
-        self.event.to_tokens(tokens);
+        if let Some((plus, event)) = &self.event {
+            plus.to_tokens(tokens);
+            event.to_tokens(tokens);
+        }
         self.arrow_token.to_tokens(tokens);
         self.target.to_tokens(tokens);
         if let Some((slash, action)) = &self.action {
@@ -258,6 +292,23 @@ impl ToTokens for ItemTransition {
             if_token.to_tokens(tokens);
             guard.to_tokens(tokens);
         }
+    }
+}
+
+impl ToTokens for TransitionSource {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            TransitionSource::Initial(i) => i.to_tokens(tokens),
+            TransitionSource::State(s) => s.to_tokens(tokens),
+        }
+    }
+}
+
+impl ToTokens for SourceInitial {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.lt_token.to_tokens(tokens);
+        self.asterisk_token.to_tokens(tokens);
+        self.gt_token.to_tokens(tokens);
     }
 }
 
@@ -287,9 +338,10 @@ mod tests {
     #[test]
     fn parse_umlstate() {
         let _sm: UmlState = parse_quote! {
-            machine Foo<'a> {
+            machine Foo {
                 state S1;
 
+                <*> => S1;
                 S1 + E2(n) => M2 / print2;
                 M2 + E1 => S1
                     if some_cond();
@@ -297,6 +349,8 @@ mod tests {
                 machine M2 {
                     state A;
                     state B;
+
+                    <*> => A;
                     A + E1 => B;
                 }
             }

@@ -15,6 +15,7 @@ umlstate! {
         state C;
         ctx BasicContext;
 
+        <*> => A;
         A + E(n) => B / ctx.called()
             if n > 0;
         B + E2 => C;
@@ -23,6 +24,7 @@ umlstate! {
             state A;
             state X;
 
+            <*> => A;
             A + E3 => X;
         }
     }
