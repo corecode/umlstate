@@ -11,22 +11,22 @@ struct E3;
 
 umlstate! {
     pub(crate) machine Basic {
+        ctx BasicContext;
         state A;
         state C;
-        ctx BasicContext;
 
-        <*> => A;
-        A + E(n) => B / ctx.called()
-            if n > 0;
-        B + E2 => C;
-
-        machine B {
+        state B {
             state A;
             state X;
 
             <*> => A;
             A + E3 => X;
         }
+
+        <*> => A;
+        A + E(n) => B / ctx.called()
+            if n > 0;
+        B + E2 => C;
     }
 }
 

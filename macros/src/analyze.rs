@@ -11,16 +11,14 @@ pub struct Model {
 pub struct Machine {
     pub vis: syn::Visibility,
     pub ident: syn::Ident,
-    pub generics: syn::Generics,
-    pub initial_transition: Transition,
     pub context: Option<syn::Ident>,
-    pub states: HashMap<syn::Ident, State>,
-    pub machines: HashMap<syn::Ident, Machine>,
+    pub state: State,
 }
 
 pub struct State {
     pub ident: syn::Ident,
-    pub is_machine: bool,
+    pub states: HashMap<syn::Ident, State>,
+    pub initial_transition: Option<Transition>,
     pub out_transitions: Vec<Transition>,
 }
 
@@ -28,7 +26,6 @@ pub struct Transition {
     pub event_path: Option<syn::Path>,
     pub event_pat: Option<syn::Pat>,
     pub target: syn::Ident,
-    pub target_machine: Option<syn::Ident>,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
 }
@@ -46,52 +43,11 @@ pub fn analyze(ast: parse::UmlState) -> Result<Model> {
 }
 
 fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
-    let mut states = HashMap::new();
-    let mut machines = HashMap::new();
     let mut context: Option<syn::Ident> = None;
-    let mut initial_transition = None;
+    let mut items = vec![];
 
     for it in &machine.items {
         match it {
-            parse::MachineItem::State(state) => {
-                let old = states.insert(
-                    state.ident.clone(),
-                    State {
-                        ident: state.ident.clone(),
-                        is_machine: false,
-                        out_transitions: vec![],
-                    },
-                );
-                if old.is_some() {
-                    return Err(syn::Error::new_spanned(
-                        &state.ident,
-                        "duplicate declaration of state",
-                    ));
-                }
-            }
-            parse::MachineItem::Machine(machine) => {
-                let old = machines.insert(machine.ident.clone(), analyze_machine(machine)?);
-                if old.is_some() {
-                    return Err(syn::Error::new_spanned(
-                        &machine.ident,
-                        "duplicate declaration of machine",
-                    ));
-                }
-                let old = states.insert(
-                    machine.ident.clone(),
-                    State {
-                        ident: machine.ident.clone(),
-                        is_machine: true,
-                        out_transitions: vec![],
-                    },
-                );
-                if old.is_some() {
-                    return Err(syn::Error::new_spanned(
-                        &machine.ident,
-                        "machine declared as state before",
-                    ));
-                }
-            }
             parse::MachineItem::Context(c) => {
                 if context.is_some() {
                     return Err(syn::Error::new_spanned(
@@ -101,13 +57,47 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
                 }
                 context = Some(c.ident.clone());
             }
-            parse::MachineItem::Transition(_) => (),
+            parse::MachineItem::StateItem(i) => items.push(i.clone()),
         }
     }
 
-    for it in &machine.items {
+    Ok(Machine {
+        vis: machine.vis.clone(),
+        ident: machine.ident.clone(),
+        context,
+        state: analyze_state(machine.ident.clone(), &items, &machine)?,
+    })
+}
+
+fn analyze_state(
+    ident: syn::Ident,
+    items: &Vec<parse::StateItem>,
+    range: &dyn quote::ToTokens,
+) -> Result<State> {
+    let mut states = HashMap::new();
+    let mut initial_transition = None;
+
+    for it in items {
         match it {
-            parse::MachineItem::Transition(
+            parse::StateItem::State(sub_state) => {
+                let old = states.insert(
+                    sub_state.ident.clone(),
+                    analyze_state(sub_state.ident.clone(), &sub_state.items, &sub_state)?,
+                );
+                if old.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &sub_state.ident,
+                        "duplicate declaration of state",
+                    ));
+                }
+            }
+            parse::StateItem::Transition(_) => (),
+        }
+    }
+
+    for it in items {
+        match it {
+            parse::StateItem::Transition(
                 transition @ parse::ItemTransition {
                     source: parse::TransitionSource::Initial(_),
                     ..
@@ -122,17 +112,13 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
 
                 initial_transition = Some(Transition {
                     target: transition.target.clone(),
-                    target_machine: machines
-                        .get(&transition.target)
-                        .as_ref()
-                        .map(|m| m.ident.clone()),
-                    event_path: None,
-                    event_pat: None,
                     action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
+                    event_pat: None,
+                    event_path: None,
                     guard: None,
                 })
             }
-            parse::MachineItem::Transition(
+            parse::StateItem::Transition(
                 transition @ parse::ItemTransition {
                     source: parse::TransitionSource::State(source),
                     ..
@@ -145,7 +131,7 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
                     ));
                 }
 
-                let state = states.get_mut(source).ok_or_else(|| {
+                let sub_state = states.get_mut(source).ok_or_else(|| {
                     syn::Error::new_spanned(
                         &transition.source,
                         "transition source is not a declared state",
@@ -181,39 +167,30 @@ fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
                     _ => Some(event.pat.clone()),
                 };
 
-                state.out_transitions.push(Transition {
+                sub_state.out_transitions.push(Transition {
                     target: transition.target.clone(),
-                    target_machine: machines
-                        .get(&transition.target)
-                        .as_ref()
-                        .map(|m| m.ident.clone()),
                     event_path: Some(event_path),
                     event_pat,
                     action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
                     guard: transition.guard.as_ref().map(|(_, g)| g.expr.clone()),
                 })
             }
-            parse::MachineItem::State(_) => (),
-            parse::MachineItem::Machine(_) => (),
-            parse::MachineItem::Context(_) => (),
+            parse::StateItem::State(_) => (),
         }
     }
 
-    let initial_transition = initial_transition.ok_or_else(|| {
-        syn::Error::new_spanned(
-            &machine,
+    if states.len() > 0 && initial_transition.is_none() {
+        return Err(syn::Error::new_spanned(
+            range,
             "missing initial transition. help: you need one `<*> =>` transition",
-        )
-    })?;
+        ));
+    }
 
-    Ok(Machine {
-        vis: machine.vis.clone(),
-        ident: machine.ident.clone(),
-        generics: machine.generics.clone(),
-        context,
-        initial_transition,
+    Ok(State {
+        ident,
         states,
-        machines,
+        initial_transition,
+        out_transitions: vec![],
     })
 }
 
@@ -232,7 +209,7 @@ mod tests {
                 A + E(n) => B if n > 0;
                 A + E(_) => A;
 
-                machine B {
+                state B {
                     state A;
                     <*> => A;
                     A + E3 => A;
@@ -246,9 +223,9 @@ mod tests {
 
         let m = &model.items[0];
         assert_eq!(m.ident, "Foo");
-        assert_eq!(m.states.len(), 2);
+        assert_eq!(m.state.states.len(), 2);
 
-        let s = m.states.values().find(|s| s.ident == "A").unwrap();
+        let s = m.state.states.values().find(|s| s.ident == "A").unwrap();
         assert_eq!(s.out_transitions.len(), 3);
 
         let t = &s.out_transitions[0];

@@ -13,7 +13,7 @@ umlstate! {
     machine ChargePower {
         state Unpowered;
 
-        machine Powered {
+        state Powered {
             state WaitCharge;
             state Charging;
             state ChargeDone;

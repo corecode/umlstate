@@ -58,7 +58,7 @@ mod mymachine_mod {
         fn process_event(&mut self, event: Event) -> umlstate::ProcessResult {
             match self.state {
                 MyMachineState::State1 => {
-                    let ctx = self.context.borrow();
+                    let _ctx = self.context.borrow();
                     match event {
                         Event::EventA(_event) => {
                             self.state = MyMachineState::State2;
@@ -91,7 +91,7 @@ mod mymachine_mod {
                     match self.sub_machine1.process_event(event.clone()) {
                         umlstate::ProcessResult::Handled => umlstate::ProcessResult::Handled,
                         umlstate::ProcessResult::Unhandled => {
-                            let ctx = self.context.borrow();
+                            let _ctx = self.context.borrow();
                             match event {
                                 Event::EventA(_event) => {
                                     self.sub_machine1.exit();
@@ -113,6 +113,7 @@ mod mymachine_mod {
             self.state = MyMachineState::State1;
         }
 
+        #[allow(dead_code)]
         pub fn exit(&mut self) {
             self.state = MyMachineState::__Exited;
         }
@@ -126,6 +127,7 @@ mod mymachine_mod {
         StateB,
     }
 
+    #[allow(dead_code)]
     pub(super) struct SubMachine1Impl<T: MyMachineContext> {
         context: Rc<RefCell<T>>,
         state: SubMachine1State,

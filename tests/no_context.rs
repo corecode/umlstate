@@ -16,7 +16,7 @@ umlstate! {
         A + E(n) => B if n > 0;
         B + E2 => C;
 
-        machine B {
+        state B {
             state A;
             state X;
 
