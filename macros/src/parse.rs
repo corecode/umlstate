@@ -54,8 +54,7 @@ pub struct ItemContext {
 pub struct ItemTransition {
     pub source: TransitionSource,
     pub event: Option<(Token![+], Event)>,
-    pub arrow_token: Token![=>],
-    pub target: syn::Ident,
+    pub target: Option<(Token![=>], syn::Ident)>,
     pub action: Option<(Token![/], Action)>,
     pub guard: Option<(Token![if], Guard)>,
     pub semi_token: Token![;],
@@ -64,7 +63,7 @@ pub struct ItemTransition {
 #[derive(Clone)]
 pub enum TransitionSource {
     Initial(SourceInitial),
-    State(syn::Ident),
+    State(syn::Pat),
 }
 
 #[derive(Clone)]
@@ -250,8 +249,11 @@ impl Parse for ItemTransition {
             } else {
                 None
             },
-            arrow_token: input.parse()?,
-            target: input.parse()?,
+            target: if input.peek(Token![=>]) {
+                Some((input.parse()?, input.parse()?))
+            } else {
+                None
+            },
             action: if input.peek(Token![/]) {
                 Some((input.parse()?, input.parse()?))
             } else {
@@ -274,8 +276,10 @@ impl ToTokens for ItemTransition {
             plus.to_tokens(tokens);
             event.to_tokens(tokens);
         }
-        self.arrow_token.to_tokens(tokens);
-        self.target.to_tokens(tokens);
+        if let Some((arrow, target)) = &self.target {
+            arrow.to_tokens(tokens);
+            target.to_tokens(tokens);
+        }
         if let Some((slash, action)) = &self.action {
             slash.to_tokens(tokens);
             action.to_tokens(tokens);
@@ -286,6 +290,7 @@ impl ToTokens for ItemTransition {
         }
     }
 }
+
 impl Parse for TransitionSource {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         if input.peek(Token![<]) {

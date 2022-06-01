@@ -18,14 +18,17 @@ pub struct Machine {
 pub struct State {
     pub ident: syn::Ident,
     pub states: HashMap<syn::Ident, State>,
+    pub entry: Option<Box<syn::Expr>>,
+    pub exit: Option<Box<syn::Expr>>,
     pub initial_transition: Option<Transition>,
+    pub internal_transitions: Vec<Transition>,
     pub out_transitions: Vec<Transition>,
 }
 
 pub struct Transition {
     pub event_path: Option<syn::Path>,
     pub event_pat: Option<syn::Pat>,
-    pub target: syn::Ident,
+    pub target: Option<syn::Ident>,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
 }
@@ -76,6 +79,9 @@ fn analyze_state(
 ) -> Result<State> {
     let mut states = HashMap::new();
     let mut initial_transition = None;
+    let mut entry = None;
+    let mut exit = None;
+    let mut internal_transitions = vec![];
 
     for it in items {
         match it {
@@ -103,39 +109,151 @@ fn analyze_state(
                     ..
                 },
             ) => {
-                if !states.contains_key(&transition.target) {
+                if initial_transition.is_some() {
                     return Err(syn::Error::new_spanned(
-                        &transition.target,
+                        transition,
+                        "duplicate initial transition",
+                    ));
+                }
+
+                let target = &transition
+                    .target
+                    .as_ref()
+                    .ok_or_else(|| {
+                        syn::Error::new_spanned(
+                            transition,
+                            "initial transition needs a target state",
+                        )
+                    })?
+                    .1;
+                if !states.contains_key(target) {
+                    return Err(syn::Error::new_spanned(
+                        target,
                         "transition target is not a declared state",
                     ));
                 }
 
                 initial_transition = Some(Transition {
-                    target: transition.target.clone(),
-                    action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
-                    event_pat: None,
                     event_path: None,
+                    event_pat: None,
+                    target: Some(target.clone()),
+                    action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
                     guard: None,
                 })
             }
+            // Entry behavior
+            // ```rust
+            // entry / Action;
+            // ```
+            parse::StateItem::Transition(
+                transition @ parse::ItemTransition {
+                    source:
+                        parse::TransitionSource::State(syn::Pat::Ident(syn::PatIdent {
+                            ident: i, ..
+                        })),
+                    target: None,
+                    event: None,
+                    guard: None,
+                    action: Some((_, action)),
+                    ..
+                },
+            ) if i == "entry" => {
+                if entry.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        transition,
+                        "duplicate entry behavior",
+                    ));
+                }
+                entry = Some(action.expr.clone());
+            }
+            // Exit behavior
+            // ```rust
+            // exit / Action;
+            // ```
+            parse::StateItem::Transition(
+                transition @ parse::ItemTransition {
+                    source:
+                        parse::TransitionSource::State(syn::Pat::Ident(syn::PatIdent {
+                            ident: i, ..
+                        })),
+                    target: None,
+                    event: None,
+                    guard: None,
+                    action: Some((_, action)),
+                    ..
+                },
+            ) if i == "exit" => {
+                if exit.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        transition,
+                        "duplicate exit behavior",
+                    ));
+                }
+                exit = Some(action.expr.clone());
+            }
+            // An internal transition
+            // ```rust
+            // Event / Action;
+            // Event / Action if Guard;
+            // ```
+            parse::StateItem::Transition(
+                transition @ parse::ItemTransition {
+                    source: parse::TransitionSource::State(source),
+                    target: None,
+                    event: None,
+                    action: Some((_, action)),
+                    ..
+                },
+            ) => {
+                let event = source;
+                let (event_path, event_pat) = analyze_event(event);
+
+                internal_transitions.push(Transition {
+                    target: None,
+                    event_path: Some(event_path),
+                    event_pat,
+                    action: Some(action.expr.clone()),
+                    guard: transition.guard.as_ref().map(|(_, g)| g.expr.clone()),
+                })
+            }
+            // A normal transition
+            // ```rust
+            // Source + Event => Target;
+            // Source + Event => Target / Action;
+            // Source + Event => Target if Guard;
+            // Source + Event => Target / Action if Guard;
+            // ```
             parse::StateItem::Transition(
                 transition @ parse::ItemTransition {
                     source: parse::TransitionSource::State(source),
                     ..
                 },
             ) => {
-                if !states.contains_key(&transition.target) {
+                let target = &transition.target.as_ref().unwrap().1;
+                if !states.contains_key(target) {
                     return Err(syn::Error::new_spanned(
-                        &transition.target,
+                        target,
                         "transition target is not a declared state",
                     ));
                 }
 
+                let source = match source {
+                    syn::Pat::Ident(syn::PatIdent {
+                        attrs,
+                        by_ref: None,
+                        mutability: None,
+                        ident: i,
+                        subpat: None,
+                    }) if attrs.is_empty() => i,
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            source,
+                            "transition source must be a simple ident",
+                        ));
+                    }
+                };
                 let sub_state = states.get_mut(source).ok_or_else(|| {
-                    syn::Error::new_spanned(
-                        &transition.source,
-                        "transition source is not a declared state",
-                    )
+                    syn::Error::new_spanned(source, "transition source is not a declared state")
                 })?;
 
                 let event = &transition
@@ -145,30 +263,10 @@ fn analyze_state(
                         syn::Error::new_spanned(&transition.source, "transition requires event")
                     })?
                     .1;
-                let event_path = match &event.pat {
-                    syn::Pat::Path(p) => p.path.clone(),
-                    syn::Pat::Struct(s) => s.path.clone(),
-                    syn::Pat::TupleStruct(ts) => ts.path.clone(),
-                    syn::Pat::Ident(i) => syn::Path {
-                        leading_colon: None,
-                        segments: {
-                            let mut segments = syn::punctuated::Punctuated::new();
-                            segments.push_value(syn::PathSegment {
-                                ident: i.ident.clone(),
-                                arguments: syn::PathArguments::None,
-                            });
-                            segments
-                        },
-                    },
-                    _ => panic!("parsed invalid event pattern"),
-                };
-                let event_pat = match &event.pat {
-                    syn::Pat::Ident(_) => None,
-                    _ => Some(event.pat.clone()),
-                };
+                let (event_path, event_pat) = analyze_event(&event.pat);
 
                 sub_state.out_transitions.push(Transition {
-                    target: transition.target.clone(),
+                    target: Some(target.clone()),
                     event_path: Some(event_path),
                     event_pat,
                     action: transition.action.as_ref().map(|(_, a)| a.expr.clone()),
@@ -189,9 +287,37 @@ fn analyze_state(
     Ok(State {
         ident,
         states,
+        entry,
+        exit,
         initial_transition,
+        internal_transitions,
         out_transitions: vec![],
     })
+}
+
+fn analyze_event(event: &syn::Pat) -> (syn::Path, Option<syn::Pat>) {
+    let event_path = match event {
+        syn::Pat::Path(p) => p.path.clone(),
+        syn::Pat::Struct(s) => s.path.clone(),
+        syn::Pat::TupleStruct(ts) => ts.path.clone(),
+        syn::Pat::Ident(i) => syn::Path {
+            leading_colon: None,
+            segments: {
+                let mut segments = syn::punctuated::Punctuated::new();
+                segments.push_value(syn::PathSegment {
+                    ident: i.ident.clone(),
+                    arguments: syn::PathArguments::None,
+                });
+                segments
+            },
+        },
+        _ => panic!("parsed invalid event pattern"),
+    };
+    let event_pat = match event {
+        syn::Pat::Ident(_) => None,
+        _ => Some(event.clone()),
+    };
+    (event_path, event_pat)
 }
 
 #[cfg(test)]
@@ -229,14 +355,14 @@ mod tests {
         assert_eq!(s.out_transitions.len(), 3);
 
         let t = &s.out_transitions[0];
-        assert_eq!(t.target, "A");
+        assert_eq!(t.target.as_ref().unwrap(), "A");
         assert!(matches!(t.event_pat, None));
 
         let t = &s.out_transitions[2];
-        assert_eq!(t.target, "A");
+        assert_eq!(t.target.as_ref().unwrap(), "A");
 
         let t = &s.out_transitions[1];
-        assert_eq!(t.target, "B");
+        assert_eq!(t.target.as_ref().unwrap(), "B");
 
         assert!(matches!(t.event_pat, Some(syn::Pat::TupleStruct(ref p))
                      if p.path.get_ident().unwrap() == "E"));

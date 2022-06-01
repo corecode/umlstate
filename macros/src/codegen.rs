@@ -64,9 +64,11 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
     let mod_name = &state.mod_name;
     let state_type = &state.state_type;
 
+    let get_ctx = state.context_type.as_ref().map(|_| {
+        quote! { let ctx = self.context.borrow(); }
+    });
+
     let invalid_event_state_str = format!("{} received event while in invalid state", state_name);
-    let invalid_enter_state_str = format!("{}.enter() while in active state", state_name);
-    let invalid_exit_state_str = format!("{}.exit() while in not in active state", state_name);
 
     let state_decl = state.states.iter().map(|s| s.ident.clone());
 
@@ -95,33 +97,11 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
     let process_states = state.states.iter().map(|sub_state| {
         let state_name = &sub_state.ident;
         let field_ident = &sub_state.field_ident;
-        let exit_action = quote! {
-            self.#field_ident.exit();
-        };
 
-        let get_ctx = sub_state.context_type.as_ref().map(|_| {
-            quote! { let ctx = self.context.borrow(); }
-        });
-        let drop_ctx = sub_state
-            .context_type
-            .as_ref()
-            .map(|_| quote! { drop(ctx); });
-
-        let transitions = sub_state.out_transitions.iter().map(|t| {
-            let event = &t.event;
-            let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
-            let guard = t.guard.as_ref().map(|g| quote! { if #g });
-            let entry = generate_entry(&state, Some(t));
-
-            quote! {
-                Event::#event(event #event_pat) #guard => {
-                    #drop_ctx
-                    #exit_action
-                    #entry
-                    ::umlstate::ProcessResult::Handled
-                }
-            }
-        });
+        let transitions = sub_state
+            .out_transitions
+            .iter()
+            .map(|t| generate_transition(state, sub_state, t));
 
         quote! {
             #state_type::#state_name => {
@@ -129,7 +109,7 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
                     ::umlstate::ProcessResult::Handled => ::umlstate::ProcessResult::Handled,
                     ::umlstate::ProcessResult::Unhandled => {
                         #get_ctx
-                        match event {
+                        match event.clone() {
                             #(#transitions),*
                             _ => ::umlstate::ProcessResult::Unhandled,
                         }
@@ -138,6 +118,11 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
             }
         }
     });
+
+    let internal_transitions = state
+        .internal_transitions
+        .iter()
+        .map(|t| generate_internal_transition(state, t));
 
     let generics = &state.generics;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -152,6 +137,7 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
         }
     });
     let enter_action = generate_entry(state, state.initial_transition.as_ref());
+    let exit_action = generate_exit(state);
 
     let entered_state_decl = if state.states.is_empty() {
         Some(quote! { __Entered, })
@@ -201,37 +187,93 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
                 }
 
                 pub(super) fn process_event(&mut self, event: Event) -> ::umlstate::ProcessResult {
-                    match self.state {
+                    let result = match self.state {
                         #(#process_states),*
                         #entered_arm
                         #state_type::__NotStarted | #state_type::__Exited => {
                             panic!(#invalid_event_state_str);
                         }
+                    };
+
+                    if result == ::umlstate::ProcessResult::Handled {
+                        return result
+                    }
+
+                    #get_ctx
+                    match event {
+                        #(#internal_transitions),*
+                        _ => ::umlstate::ProcessResult::Unhandled
                     }
                 }
 
                 pub fn enter(&mut self) {
-                    match self.state {
-                        #state_type::__NotStarted | #state_type::__Exited => (),
-                        _ => {
-                            panic!(#invalid_enter_state_str);
-                        }
-                    }
                     #enter_action
                 }
 
                 pub fn exit(&mut self) {
-                    match self.state {
-                        #state_type::__NotStarted | #state_type::__Exited => {
-                            panic!(#invalid_exit_state_str);
-                        }
-                        _ => ()
-                    }
-                    self.state = #state_type::__Exited;
+                    #exit_action
                 }
             }
 
             #(#states)*
+        }
+    }
+}
+
+fn generate_internal_transition(
+    state: &lower::State,
+    t: &lower::Transition,
+) -> proc_macro2::TokenStream {
+    let drop_ctx = state.context_type.as_ref().map(|_| quote! { drop(ctx); });
+    let mut_ctx = state.context_type.as_ref().map(|_| {
+        quote! { let mut ctx = self.context.borrow_mut(); }
+    });
+    let event = &t.event;
+    let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
+    let guard = t.guard.as_ref().map(|g| quote! { if #g });
+    let action = &t.action;
+
+    quote! {
+        Event::#event(event #event_pat) #guard => {
+            #drop_ctx
+            {
+                #mut_ctx
+                #action;
+            }
+            ::umlstate::ProcessResult::Handled
+        }
+    }
+}
+
+fn generate_transition(
+    parent: &lower::State,
+    cur_state: &lower::State,
+    t: &lower::Transition,
+) -> proc_macro2::TokenStream {
+    let drop_ctx = parent.context_type.as_ref().map(|_| quote! { drop(ctx); });
+    let mut_ctx = parent.context_type.as_ref().map(|_| {
+        quote! { let mut ctx = self.context.borrow_mut(); }
+    });
+    let event = &t.event;
+    let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
+    let guard = t.guard.as_ref().map(|g| quote! { if #g });
+    let action = &t.action;
+    let state_type = &parent.state_type;
+    let cur_state_field = &cur_state.field_ident;
+    let next_state_name = &t.target;
+    let next_state_field = &t.target_state_field;
+
+    quote! {
+        Event::#event(event #event_pat) #guard => {
+            #drop_ctx
+            self.#cur_state_field.exit();
+            {
+                #mut_ctx
+                #action;
+            }
+            self.state = #state_type::#next_state_name;
+            self.#next_state_field.enter();
+            ::umlstate::ProcessResult::Handled
         }
     }
 }
@@ -244,26 +286,76 @@ fn generate_entry(
         quote! { let mut ctx = self.context.borrow_mut(); }
     });
     let state_type = &state.state_type;
+    let state_name;
+    let action;
+    let entry_action = &state.entry;
+    let enter_substate;
 
     if let Some(t) = transition {
-        let action = &t.action;
-        let target = &t.target;
+        state_name = t.target.as_ref().unwrap().clone();
+        action = &t.action;
         let field_ident = &t.target_state_field;
-        let entry_action = quote! {
+        enter_substate = Some(quote! {
             self.#field_ident.enter();
-        };
-
-        quote! {
-            {
-                #mut_ctx
-                #action;
-            }
-            self.state = #state_type::#target;
-            #entry_action
-        }
+        });
     } else {
+        state_name = quote::format_ident!("__Entered");
+        action = &None;
+        enter_substate = None;
+    }
+
+    let invalid_enter_state_str = format!("{}.enter() while in active state", &state.ident);
+
+    quote! {
+        match self.state {
+            #state_type::__NotStarted | #state_type::__Exited => (),
+            _ => {
+                panic!(#invalid_enter_state_str);
+            }
+        }
+        {
+            #mut_ctx
+            #action;
+            self.state = #state_type::#state_name;
+            #entry_action;
+        }
+        #enter_substate
+    }
+}
+
+fn generate_exit(state: &lower::State) -> proc_macro2::TokenStream {
+    let mut_ctx = state.context_type.as_ref().map(|_| {
+        quote! { let mut ctx = self.context.borrow_mut(); }
+    });
+    let state_type = &state.state_type;
+    let exit_action = &state.exit;
+    let sub_state_exits = state.states.iter().map(|s| {
+        let ident = &s.ident;
+        let field_ident = &s.field_ident;
         quote! {
-            self.state = #state_type::__Entered;
+            #state_type::#ident => self.#field_ident.exit()
+        }
+    });
+    let simple_entered_arm = if state.states.is_empty() {
+        quote! { #state_type::__Entered => () }
+    } else {
+        quote! {}
+    };
+
+    let invalid_exit_state_str = format!("{}.exit() while in not in active state", &state.ident);
+
+    quote! {
+        match self.state {
+            #state_type::__NotStarted | #state_type::__Exited => {
+                panic!(#invalid_exit_state_str);
+            }
+            #(#sub_state_exits),*
+            #simple_entered_arm
+        }
+        {
+            #mut_ctx
+            self.state = #state_type::__Exited;
+            #exit_action;
         }
     }
 }

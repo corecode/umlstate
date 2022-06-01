@@ -23,7 +23,10 @@ pub struct State {
     pub generics: syn::Generics,
     pub context_type: Option<syn::Ident>,
     pub state_type: syn::Ident,
+    pub entry: Option<Box<syn::Expr>>,
+    pub exit: Option<Box<syn::Expr>>,
     pub initial_transition: Option<Transition>,
+    pub internal_transitions: Vec<Transition>,
     pub states: Vec<State>,
     pub out_transitions: Vec<Transition>,
 }
@@ -31,8 +34,8 @@ pub struct State {
 pub struct Transition {
     pub event: Option<syn::Ident>,
     pub event_pat: Option<syn::Pat>,
-    pub target: syn::Ident,
-    pub target_state_field: syn::Ident,
+    pub target: Option<syn::Ident>,
+    pub target_state_field: Option<syn::Ident>,
     pub action: Option<Box<syn::Expr>>,
     pub guard: Option<Box<syn::Expr>>,
 }
@@ -125,6 +128,12 @@ fn lower_state(
         .as_ref()
         .map(|t| lower_transition(t, events));
 
+    let internal_transitions = state
+        .internal_transitions
+        .iter()
+        .map(|t| lower_transition(t, events))
+        .collect();
+
     let out_transitions = state
         .out_transitions
         .iter()
@@ -139,6 +148,9 @@ fn lower_state(
         generics,
         context_type,
         state_type,
+        entry: state.entry.clone(),
+        exit: state.exit.clone(),
+        internal_transitions,
         initial_transition,
         states,
         out_transitions,
@@ -151,11 +163,13 @@ fn lower_transition(transition: &analyze::Transition, events: &mut EventTracker)
         .as_ref()
         .map(|e| events.get_or_create(e));
 
+    let target_state_field = transition.target.as_ref().map(|t| state_field_ident(t));
+
     Transition {
-        event: event,
+        event,
         event_pat: transition.event_pat.clone(),
         target: transition.target.clone(),
-        target_state_field: state_field_ident(&transition.target),
+        target_state_field,
         action: transition.action.clone(),
         guard: transition.guard.clone(),
     }

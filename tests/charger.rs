@@ -11,21 +11,27 @@ struct ChargeInactive;
 
 umlstate! {
     machine ChargePower {
-        state Unpowered;
+        state Unpowered {
+            entry / use_power(Power::Battery);
+        }
 
         state Powered {
             state WaitCharge;
             state Charging;
             state ChargeDone;
 
+            entry / use_power(Power::Usb);
+
             <*> => WaitCharge;
             WaitCharge + ChargeActive => Charging / indicate(Charge::Starting);
             Charging + ChargeInactive => ChargeDone / indicate(Charge::Done);
         }
 
-        <*> => Unpowered / use_power(Power::Battery);
-        Unpowered + UsbConnected => Powered / use_power(Power::Usb);
-        Powered + UsbDisconnected => Unpowered / use_power(Power::Battery);
+        <*> => Unpowered;
+        Unpowered + UsbConnected => Powered;
+        Powered + UsbDisconnected => Unpowered;
+
+        ChargeActive / println!("ignoring charge active signal");
     }
 }
 
@@ -53,6 +59,8 @@ fn indicate(charge: Charge) {
 fn charger() {
     let mut charge_logic = ChargePower::new();
     charge_logic.enter();
+    charge_logic.process(ChargeActive);
+    charge_logic.process(ChargeInactive);
     charge_logic.process(UsbConnected);
     charge_logic.process(ChargeActive);
     charge_logic.process(ChargeInactive);
