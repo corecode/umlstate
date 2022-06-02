@@ -58,7 +58,7 @@ impl EventTracker {
             return ident.clone();
         }
         self.index += 1;
-        let ident = format_ident!("EventInternal{}", self.index);
+        let ident = format_ident!("Internal{}", self.index);
         self.map.insert(path.clone(), ident.clone());
         ident
     }
