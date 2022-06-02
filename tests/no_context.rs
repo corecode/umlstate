@@ -30,19 +30,19 @@ umlstate! {
 fn no_context() {
     let mut b = NoContext::new();
     b.enter();
-    assert!(b.state() == &NoContextState::A);
+    assert!(b.state() == Some(NoContextState::A));
     let r = b.process(E2);
     assert_eq!(r, ProcessResult::Unhandled);
     let r = b.process(E(0));
     assert_eq!(r, ProcessResult::Unhandled);
-    assert!(b.state() == &NoContextState::A);
+    assert!(b.state() == Some(NoContextState::A));
     let r = b.process(E(5));
     assert_eq!(r, ProcessResult::Handled);
-    assert!(b.state() == &NoContextState::B);
+    assert!(b.state() == Some(NoContextState::B));
     b.process(E3 {});
-    assert!(b.state() == &NoContextState::B);
+    assert!(b.state() == Some(NoContextState::B));
     b.process(E3 {});
-    assert!(b.state() == &NoContextState::B);
+    assert!(b.state() == Some(NoContextState::B));
     b.process(E2 {});
-    assert!(b.state() == &NoContextState::C);
+    assert!(b.state() == Some(NoContextState::C));
 }

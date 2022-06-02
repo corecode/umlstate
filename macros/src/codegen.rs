@@ -139,15 +139,15 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
     let enter_action = generate_entry(state, state.initial_transition.as_ref());
     let exit_action = generate_exit(state);
 
-    let entered_state_decl = if state.states.is_empty() {
-        Some(quote! { __Entered, })
+    let active_state_decl = if state.states.is_empty() {
+        Some(quote! { Active })
     } else {
         None
     };
 
-    let entered_arm = if state.states.is_empty() {
+    let active_arm = if state.states.is_empty() {
         quote! {
-            #state_type::__Entered => ::umlstate::ProcessResult::Unhandled,
+            #state_type::Active => ::umlstate::ProcessResult::Unhandled,
         }
     } else {
         quote! {}
@@ -161,15 +161,13 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
 
             #[derive(Clone, Debug, PartialEq)]
             pub enum #state_type {
-                __NotStarted,
-                __Exited,
-                #entered_state_decl
                 #(#state_decl),*
+                #active_state_decl
             }
 
             pub(in #root_path::super) struct #state_name #generics {
                 #context_field
-                state: #state_type,
+                state: ::std::option::Option<#state_type>,
                 #(#state_fields),*
             }
 
@@ -177,22 +175,25 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
                 pub fn new(#context_field) -> Self {
                     Self {
                         #context_init
-                        state: #state_type::__NotStarted,
+                        state: ::std::option::Option::None,
                         #(#states_init),*
                     }
                 }
 
-                pub fn state(&self) -> &#state_type {
-                    &self.state
+                pub fn state(&self) -> ::std::option::Option<#state_type> {
+                    self.state.clone()
                 }
 
                 pub(super) fn process_event(&mut self, event: Event) -> ::umlstate::ProcessResult {
-                    let result = match self.state {
+                    let state = if let ::std::option::Option::Some(s) = &self.state {
+                        s
+                    } else {
+                        panic!(#invalid_event_state_str);
+                    };
+
+                    let result = match state {
                         #(#process_states),*
-                        #entered_arm
-                        #state_type::__NotStarted | #state_type::__Exited => {
-                            panic!(#invalid_event_state_str);
-                        }
+                        #active_arm
                     };
 
                     if result == ::umlstate::ProcessResult::Handled {
@@ -271,7 +272,7 @@ fn generate_transition(
                 #mut_ctx
                 #action;
             }
-            self.state = #state_type::#next_state_name;
+            self.state = ::std::option::Option::Some(#state_type::#next_state_name);
             self.#next_state_field.enter();
             ::umlstate::ProcessResult::Handled
         }
@@ -299,7 +300,7 @@ fn generate_entry(
             self.#field_ident.enter();
         });
     } else {
-        state_name = quote::format_ident!("__Entered");
+        state_name = quote::format_ident!("Active");
         action = &None;
         enter_substate = None;
     }
@@ -307,16 +308,13 @@ fn generate_entry(
     let invalid_enter_state_str = format!("{}.enter() while in active state", &state.ident);
 
     quote! {
-        match self.state {
-            #state_type::__NotStarted | #state_type::__Exited => (),
-            _ => {
-                panic!(#invalid_enter_state_str);
-            }
+        if self.state.is_some() {
+            panic!(#invalid_enter_state_str);
         }
         {
             #mut_ctx
             #action;
-            self.state = #state_type::#state_name;
+            self.state = ::std::option::Option::Some(#state_type::#state_name);
             #entry_action;
         }
         #enter_substate
@@ -336,8 +334,8 @@ fn generate_exit(state: &lower::State) -> proc_macro2::TokenStream {
             #state_type::#ident => self.#field_ident.exit()
         }
     });
-    let simple_entered_arm = if state.states.is_empty() {
-        quote! { #state_type::__Entered => () }
+    let simple_active_arm = if state.states.is_empty() {
+        quote! { _ => () }
     } else {
         quote! {}
     };
@@ -345,16 +343,19 @@ fn generate_exit(state: &lower::State) -> proc_macro2::TokenStream {
     let invalid_exit_state_str = format!("{}.exit() while in not in active state", &state.ident);
 
     quote! {
-        match self.state {
-            #state_type::__NotStarted | #state_type::__Exited => {
-                panic!(#invalid_exit_state_str);
-            }
+        let state = if let ::std::option::Option::Some(s) = &self.state {
+            s
+        } else {
+            panic!(#invalid_exit_state_str);
+        };
+
+        match state {
             #(#sub_state_exits),*
-            #simple_entered_arm
+            #simple_active_arm
         }
         {
             #mut_ctx
-            self.state = #state_type::__Exited;
+            self.state = ::std::option::Option::None;
             #exit_action;
         }
     }

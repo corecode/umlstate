@@ -61,22 +61,22 @@ fn basic() {
     let context = Rc::new(RefCell::new(context));
     let mut b = Basic::new(context.clone());
     b.enter();
-    assert!(b.state() == &BasicState::A);
+    assert!(b.state() == Some(BasicState::A));
     let r = b.process(E2);
     assert_eq!(r, ProcessResult::Unhandled);
     let r = b.process(E(0));
     assert_eq!(r, ProcessResult::Handled);
-    assert!(b.state() == &BasicState::A);
+    assert!(b.state() == Some(BasicState::A));
     assert!(!context.borrow().called);
     assert_eq!(context.borrow().n, Some(0));
     let r = b.process(E(5));
     assert_eq!(r, ProcessResult::Handled);
-    assert!(b.state() == &BasicState::B);
+    assert!(b.state() == Some(BasicState::B));
     assert!(context.borrow().called);
     b.process(E3 {});
-    assert!(b.state() == &BasicState::B);
+    assert!(b.state() == Some(BasicState::B));
     b.process(E3 {});
-    assert!(b.state() == &BasicState::B);
+    assert!(b.state() == Some(BasicState::B));
     b.process(E2 {});
-    assert!(b.state() == &BasicState::C);
+    assert!(b.state() == Some(BasicState::C));
 }
