@@ -28,6 +28,7 @@ pub struct State {
     pub initial_transition: Option<Transition>,
     pub internal_transitions: Vec<Transition>,
     pub states: Vec<State>,
+    pub regions: Vec<State>,
     pub out_transitions: Vec<Transition>,
 }
 
@@ -123,6 +124,12 @@ fn lower_state(
         .map(|s| lower_state(s, quote! { #root_path::super }, events, context))
         .collect();
 
+    let regions = state
+        .regions
+        .iter()
+        .map(|s| lower_state(s, quote! { #root_path::super }, events, context))
+        .collect();
+
     let initial_transition = state
         .initial_transition
         .as_ref()
@@ -153,6 +160,7 @@ fn lower_state(
         internal_transitions,
         initial_transition,
         states,
+        regions,
         out_transitions,
     }
 }

@@ -18,6 +18,7 @@ pub struct Machine {
 pub struct State {
     pub ident: syn::Ident,
     pub states: HashMap<syn::Ident, State>,
+    pub regions: Vec<State>,
     pub entry: Option<Box<syn::Expr>>,
     pub exit: Option<Box<syn::Expr>>,
     pub initial_transition: Option<Transition>,
@@ -78,6 +79,7 @@ fn analyze_state(
     range: &dyn quote::ToTokens,
 ) -> Result<State> {
     let mut states = HashMap::new();
+    let mut regions = HashMap::new();
     let mut initial_transition = None;
     let mut entry = None;
     let mut exit = None;
@@ -85,7 +87,32 @@ fn analyze_state(
 
     for it in items {
         match it {
+            parse::StateItem::Region(region) => {
+                let old = regions.insert(
+                    region.ident.clone(),
+                    analyze_state(region.ident.clone(), &region.items, &region)?,
+                );
+                if old.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &region.ident,
+                        "duplicate declaration of region",
+                    ));
+                }
+            }
+            parse::StateItem::State(_) => (),
+            parse::StateItem::Transition(_) => (),
+        }
+    }
+
+    for it in items {
+        match it {
             parse::StateItem::State(sub_state) => {
+                if regions.len() > 0 {
+                    return Err(syn::Error::new_spanned(
+                        sub_state,
+                        "sub-state not allowed in state with regions",
+                    ));
+                }
                 let old = states.insert(
                     sub_state.ident.clone(),
                     analyze_state(sub_state.ident.clone(), &sub_state.items, &sub_state)?,
@@ -97,6 +124,7 @@ fn analyze_state(
                     ));
                 }
             }
+            parse::StateItem::Region(_) => (),
             parse::StateItem::Transition(_) => (),
         }
     }
@@ -274,6 +302,7 @@ fn analyze_state(
                 })
             }
             parse::StateItem::State(_) => (),
+            parse::StateItem::Region(_) => (),
         }
     }
 
@@ -287,6 +316,7 @@ fn analyze_state(
     Ok(State {
         ident,
         states,
+        regions: regions.into_values().collect(),
         entry,
         exit,
         initial_transition,

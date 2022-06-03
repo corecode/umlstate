@@ -72,7 +72,13 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
 
     let state_decl = state.states.iter().map(|s| s.ident.clone());
 
-    let state_fields = state.states.iter().map(|s| {
+    let states_or_regions = if state.states.len() > 0 {
+        &state.states
+    } else {
+        &state.regions
+    };
+
+    let state_fields = states_or_regions.iter().map(|s| {
         let state_mod = &s.mod_name;
         let state_ident = &s.ident;
         let field_ident = &s.field_ident;
@@ -82,9 +88,9 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
         }
     });
 
-    let states = state.states.iter().map(|m| generate_state(m));
+    let states = states_or_regions.iter().map(|m| generate_state(m));
 
-    let states_init = state.states.iter().map(|s| {
+    let states_init = states_or_regions.iter().map(|s| {
         let type_ident = &s.ident;
         let mod_name = &s.mod_name;
         let field_ident = &s.field_ident;
@@ -119,6 +125,19 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
         }
     });
 
+    let process_regions = state.regions.iter().map(|r| {
+        let field_ident = &r.field_ident;
+
+        quote! {
+            {
+                let r = self.#field_ident.process_event(event.clone());
+                if r == ::umlstate::ProcessResult::Handled {
+                    result = r;
+                }
+            }
+        }
+    });
+
     let internal_transitions = state
         .internal_transitions
         .iter()
@@ -147,7 +166,11 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
 
     let active_arm = if state.states.is_empty() {
         quote! {
-            #state_type::Active => ::umlstate::ProcessResult::Unhandled,
+            #state_type::Active => {
+                let mut result = ::umlstate::ProcessResult::Unhandled;
+                #(#process_regions)*
+                result
+            }
         }
     } else {
         quote! {}
@@ -296,13 +319,19 @@ fn generate_entry(
         state_name = t.target.as_ref().unwrap().clone();
         action = &t.action;
         let field_ident = &t.target_state_field;
-        enter_substate = Some(quote! {
+        enter_substate = quote! {
             self.#field_ident.enter();
-        });
+        };
     } else {
         state_name = quote::format_ident!("Active");
         action = &None;
-        enter_substate = None;
+        let enter_regions = state.regions.iter().map(|s| {
+            let field_ident = &s.field_ident;
+            quote! {
+                self.#field_ident.enter();
+            }
+        });
+        enter_substate = quote! { #(#enter_regions)* };
     }
 
     let invalid_enter_state_str = format!("{}.enter() while in active state", &state.ident);
@@ -334,8 +363,18 @@ fn generate_exit(state: &lower::State) -> proc_macro2::TokenStream {
             #state_type::#ident => self.#field_ident.exit()
         }
     });
+    let region_exits = state.regions.iter().map(|s| {
+        let field_ident = &s.field_ident;
+        quote! {
+            self.#field_ident.exit();
+        }
+    });
     let simple_active_arm = if state.states.is_empty() {
-        quote! { _ => () }
+        quote! {
+            _ => {
+                #(#region_exits)*
+            }
+        }
     } else {
         quote! {}
     };

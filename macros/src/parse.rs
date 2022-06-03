@@ -5,6 +5,7 @@ use syn::{Error, Result, Token};
 mod kw {
     syn::custom_keyword!(machine);
     syn::custom_keyword!(state);
+    syn::custom_keyword!(region);
     syn::custom_keyword!(ctx);
 }
 
@@ -40,6 +41,7 @@ pub enum MachineItem {
 #[derive(Clone)]
 pub enum StateItem {
     State(Box<State>),
+    Region(Box<Region>),
     Transition(ItemTransition),
 }
 
@@ -48,6 +50,14 @@ pub struct ItemContext {
     pub ctx_token: kw::ctx,
     pub ident: syn::Ident,
     pub semi_token: Token![;],
+}
+
+#[derive(Clone)]
+pub struct Region {
+    pub region_token: kw::region,
+    pub ident: syn::Ident,
+    pub brace_token: syn::token::Brace,
+    pub items: Vec<StateItem>,
 }
 
 #[derive(Clone)]
@@ -186,6 +196,37 @@ impl ToTokens for State {
     }
 }
 
+impl Parse for Region {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let content;
+
+        Ok(Region {
+            region_token: input.parse()?,
+            ident: input.parse()?,
+            brace_token: syn::braced!(content in input),
+            items: {
+                let mut items = vec![];
+                while !content.is_empty() {
+                    items.push(content.parse()?)
+                }
+                items
+            },
+        })
+    }
+}
+
+impl ToTokens for Region {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.region_token.to_tokens(tokens);
+        self.ident.to_tokens(tokens);
+        self.brace_token.surround(tokens, |tokens| {
+            for item in self.items.iter() {
+                item.to_tokens(tokens);
+            }
+        })
+    }
+}
+
 impl Parse for MachineItem {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         if input.peek(kw::ctx) {
@@ -209,6 +250,9 @@ impl Parse for StateItem {
         if input.peek(kw::state) {
             return Ok(StateItem::State(input.parse()?));
         }
+        if input.peek(kw::region) {
+            return Ok(StateItem::Region(input.parse()?));
+        }
         Ok(StateItem::Transition(input.parse()?))
     }
 }
@@ -217,6 +261,7 @@ impl ToTokens for StateItem {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             StateItem::State(s) => s.to_tokens(tokens),
+            StateItem::Region(r) => r.to_tokens(tokens),
             StateItem::Transition(t) => t.to_tokens(tokens),
         }
     }
