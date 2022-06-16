@@ -11,7 +11,9 @@ struct E3;
 
 umlstate! {
     pub(crate) machine Basic {
-        ctx BasicContext;
+        fn called(&mut self);
+        fn internal(&mut self, n: u32);
+
         state A;
         state C;
 
@@ -30,11 +32,6 @@ umlstate! {
 
         E(n) / ctx.internal(n);
     }
-}
-
-trait BasicContext {
-    fn called(&mut self);
-    fn internal(&mut self, n: u32);
 }
 
 struct BasicContextImpl {

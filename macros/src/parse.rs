@@ -6,7 +6,6 @@ mod kw {
     syn::custom_keyword!(machine);
     syn::custom_keyword!(state);
     syn::custom_keyword!(region);
-    syn::custom_keyword!(ctx);
 }
 
 #[derive(Clone)]
@@ -34,7 +33,7 @@ pub struct State {
 
 #[derive(Clone)]
 pub enum MachineItem {
-    Context(ItemContext),
+    Method(syn::TraitItemMethod),
     StateItem(StateItem),
 }
 
@@ -43,13 +42,6 @@ pub enum StateItem {
     State(Box<State>),
     Region(Box<Region>),
     Transition(ItemTransition),
-}
-
-#[derive(Clone)]
-pub struct ItemContext {
-    pub ctx_token: kw::ctx,
-    pub ident: syn::Ident,
-    pub semi_token: Token![;],
 }
 
 #[derive(Clone)]
@@ -229,8 +221,8 @@ impl ToTokens for Region {
 
 impl Parse for MachineItem {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        if input.peek(kw::ctx) {
-            return Ok(MachineItem::Context(input.parse()?));
+        if input.peek(Token![fn]) {
+            return Ok(MachineItem::Method(input.parse()?));
         }
         Ok(MachineItem::StateItem(input.parse()?))
     }
@@ -239,7 +231,7 @@ impl Parse for MachineItem {
 impl ToTokens for MachineItem {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
-            MachineItem::Context(c) => c.to_tokens(tokens),
+            MachineItem::Method(m) => m.to_tokens(tokens),
             MachineItem::StateItem(i) => i.to_tokens(tokens),
         }
     }
@@ -264,24 +256,6 @@ impl ToTokens for StateItem {
             StateItem::Region(r) => r.to_tokens(tokens),
             StateItem::Transition(t) => t.to_tokens(tokens),
         }
-    }
-}
-
-impl Parse for ItemContext {
-    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        Ok(ItemContext {
-            ctx_token: input.parse()?,
-            ident: input.parse()?,
-            semi_token: input.parse()?,
-        })
-    }
-}
-
-impl ToTokens for ItemContext {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        self.ctx_token.to_tokens(tokens);
-        self.ident.to_tokens(tokens);
-        self.semi_token.to_tokens(tokens);
     }
 }
 

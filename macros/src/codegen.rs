@@ -25,6 +25,25 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
         }
     });
 
+    let context_decl;
+    let context_use;
+
+    if let Some(c) = &machine.context {
+        let ident = &c.ident;
+        let methods = &c.methods;
+        context_decl = Some(quote! {
+            pub(super) trait #ident {
+                #(#methods)*
+            }
+        });
+        context_use = Some(quote! {
+            #vis use #mod_name::#ident;
+        });
+    } else {
+        context_decl = None;
+        context_use = None;
+    }
+
     let process_impls = machine.events.iter().map(|(path, event_ident)| {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         quote! {
@@ -48,6 +67,8 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
                 #(#event_decl),*
             }
 
+            #context_decl
+
             #(#process_impls)*
 
             #state_decl
@@ -55,6 +76,7 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
 
         #vis use #mod_name::#mod_name::#topmachine_state;
         #vis use #mod_name::#mod_name::#state_ident as #ident;
+        #context_use
     }
 }
 

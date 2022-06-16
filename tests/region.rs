@@ -9,7 +9,8 @@ struct E2;
 
 umlstate! {
     machine Regions {
-        ctx RegionData;
+        fn inc_a_e1(&mut self);
+        fn inc_b_e1(&mut self);
 
         region A {
             state S1;
@@ -31,17 +32,12 @@ umlstate! {
     }
 }
 
-trait RegionData {
-    fn inc_a_e1(&mut self);
-    fn inc_b_e1(&mut self);
-}
-
 struct Data {
     a_e1: usize,
     b_e1: usize,
 }
 
-impl RegionData for Data {
+impl RegionsContext for Data {
     fn inc_a_e1(&mut self) {
         self.a_e1 += 1;
     }

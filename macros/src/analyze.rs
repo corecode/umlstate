@@ -11,7 +11,7 @@ pub struct Model {
 pub struct Machine {
     pub vis: syn::Visibility,
     pub ident: syn::Ident,
-    pub context: Option<syn::Ident>,
+    pub methods: Vec<syn::TraitItemMethod>,
     pub state: State,
 }
 
@@ -47,28 +47,28 @@ pub fn analyze(ast: parse::UmlState) -> Result<Model> {
 }
 
 fn analyze_machine(machine: &parse::Machine) -> Result<Machine> {
-    let mut context: Option<syn::Ident> = None;
-    let mut items = vec![];
+    let methods = machine
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            parse::MachineItem::Method(m) => Some(m.clone()),
+            _ => None,
+        })
+        .collect();
 
-    for it in &machine.items {
-        match it {
-            parse::MachineItem::Context(c) => {
-                if context.is_some() {
-                    return Err(syn::Error::new_spanned(
-                        &c,
-                        "duplicate declaration of context",
-                    ));
-                }
-                context = Some(c.ident.clone());
-            }
-            parse::MachineItem::StateItem(i) => items.push(i.clone()),
-        }
-    }
+    let items = machine
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            parse::MachineItem::StateItem(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
 
     Ok(Machine {
         vis: machine.vis.clone(),
         ident: machine.ident.clone(),
-        context,
+        methods,
         state: analyze_state(machine.ident.clone(), &items, &machine)?,
     })
 }

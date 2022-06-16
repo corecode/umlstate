@@ -12,7 +12,13 @@ pub struct TopMachine {
     pub vis: syn::Visibility,
     pub ident: syn::Ident,
     pub events: Vec<(syn::Path, syn::Ident)>,
+    pub context: Option<Context>,
     pub state: State,
+}
+
+pub struct Context {
+    pub ident: syn::Ident,
+    pub methods: Vec<syn::TraitItemMethod>,
 }
 
 pub struct State {
@@ -73,17 +79,29 @@ pub fn lower(model: analyze::Model) -> Model {
 
 fn lower_machine(machine: &analyze::Machine) -> TopMachine {
     let mut events = EventTracker::new();
+    let context;
+
+    if !machine.methods.is_empty() {
+        context = Some(Context {
+            ident: format_ident!("{}Context", &machine.ident),
+            methods: machine.methods.clone(),
+        });
+    } else {
+        context = None;
+    }
+
     let submachine = lower_state(
         &machine.state,
         quote! { super },
         &mut events,
-        &machine.context,
+        &context.as_ref().map(|c| c.ident.clone()),
     );
 
     TopMachine {
         vis: machine.vis.clone(),
         ident: machine.ident.clone(),
         events: events.map.into_iter().collect(),
+        context,
         state: submachine,
     }
 }
@@ -112,7 +130,7 @@ fn lower_state(
     let mut generics = syn::Generics::default();
 
     if let Some(ref ctx) = context {
-        context_type = Some(format_ident!("__ContextT"));
+        context_type = Some(format_ident!("Context"));
         generics.params.push_value(syn::GenericParam::Type(
             syn::parse_quote! { #context_type: #ctx },
         ));
