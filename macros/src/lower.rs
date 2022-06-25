@@ -11,14 +11,17 @@ pub struct Model {
 pub struct TopMachine {
     pub vis: syn::Visibility,
     pub ident: syn::Ident,
+    pub mod_name: syn::Ident,
     pub events: Vec<(syn::Path, syn::Ident)>,
-    pub context: Option<Context>,
+    pub context: Context,
+    pub generics: syn::Generics,
     pub state: State,
 }
 
 pub struct Context {
     pub ident: syn::Ident,
     pub methods: Vec<syn::TraitItemMethod>,
+    pub zst: Option<syn::Ident>,
 }
 
 pub struct State {
@@ -26,8 +29,7 @@ pub struct State {
     pub ident: syn::Ident,
     pub root_path: proc_macro2::TokenStream,
     pub field_ident: syn::Ident,
-    pub generics: syn::Generics,
-    pub context_type: Option<syn::Ident>,
+    pub context_type: syn::Ident,
     pub state_type: syn::Ident,
     pub entry: Option<Box<syn::Expr>>,
     pub exit: Option<Box<syn::Expr>>,
@@ -78,30 +80,44 @@ pub fn lower(model: analyze::Model) -> Model {
 }
 
 fn lower_machine(machine: &analyze::Machine) -> TopMachine {
+    let mod_name = format_ident!(
+        "{}_machine",
+        convert_case::Casing::to_case(&machine.ident.to_string(), convert_case::Case::Snake)
+    );
     let mut events = EventTracker::new();
     let context;
+    let mut generics = syn::Generics::default();
+
+    let context_ident = format_ident!("{}Context", &machine.ident);
+    context = Context {
+        ident: context_ident.clone(),
+        methods: machine.methods.clone(),
+        zst: match machine.methods.is_empty() {
+            true => Some(format_ident!("{}Dummy", &context_ident)),
+            _ => None,
+        },
+    };
 
     if !machine.methods.is_empty() {
-        context = Some(Context {
-            ident: format_ident!("{}Context", &machine.ident),
-            methods: machine.methods.clone(),
-        });
-    } else {
-        context = None;
+        generics.params.push_value(syn::GenericParam::Type(
+            syn::parse_quote! { Context: #context_ident },
+        ));
     }
 
     let submachine = lower_state(
         &machine.state,
         quote! { super },
         &mut events,
-        &context.as_ref().map(|c| c.ident.clone()),
+        &context.ident,
     );
 
     TopMachine {
         vis: machine.vis.clone(),
         ident: machine.ident.clone(),
+        mod_name,
         events: events.map.into_iter().collect(),
         context,
+        generics,
         state: submachine,
     }
 }
@@ -117,24 +133,15 @@ fn lower_state(
     state: &analyze::State,
     root_path: proc_macro2::TokenStream,
     events: &mut EventTracker,
-    context: &Option<syn::Ident>,
+    context: &syn::Ident,
 ) -> State {
     let ident = state.ident.clone();
     let mod_name = format_ident!(
-        "mod_{}",
+        "{}_state",
         convert_case::Casing::to_case(&ident.to_string(), convert_case::Case::Snake)
     );
     let field_ident = state_field_ident(&ident);
-    let mut context_type = None;
     let state_type = format_ident!("{}State", &ident);
-    let mut generics = syn::Generics::default();
-
-    if let Some(ref ctx) = context {
-        context_type = Some(format_ident!("Context"));
-        generics.params.push_value(syn::GenericParam::Type(
-            syn::parse_quote! { #context_type: #ctx },
-        ));
-    }
 
     let states = state
         .states
@@ -170,8 +177,7 @@ fn lower_state(
         mod_name,
         root_path,
         field_ident,
-        generics,
-        context_type,
+        context_type: context.clone(),
         state_type,
         entry: state.entry.clone(),
         exit: state.exit.clone(),

@@ -9,8 +9,8 @@ struct E2;
 
 umlstate! {
     machine Regions {
-        fn inc_a_e1(&mut self);
-        fn inc_b_e1(&mut self);
+        fn inc_a_e1(&self);
+        fn inc_b_e1(&self);
 
         region A {
             state S1;
@@ -37,13 +37,13 @@ struct Data {
     b_e1: usize,
 }
 
-impl RegionsContext for Data {
-    fn inc_a_e1(&mut self) {
-        self.a_e1 += 1;
+impl RegionsContext for Rc<RefCell<Data>> {
+    fn inc_a_e1(&self) {
+        self.borrow_mut().a_e1 += 1;
     }
 
-    fn inc_b_e1(&mut self) {
-        self.b_e1 += 1;
+    fn inc_b_e1(&self) {
+        self.borrow_mut().b_e1 += 1;
     }
 }
 

@@ -16,8 +16,9 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
     let vis = &machine.vis;
     let ident = &machine.ident;
     let state_ident = &machine.state.ident;
-    let generics = &machine.state.generics;
-    let mod_name = &machine.state.mod_name;
+    let generics = &machine.generics;
+    let mod_name = &machine.mod_name;
+    let state_mod_name = &machine.state.mod_name;
 
     let event_decl = machine.events.iter().map(|(path, ident)| {
         quote! {
@@ -25,31 +26,49 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
         }
     });
 
-    let context_decl;
-    let context_use;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    if let Some(c) = &machine.context {
-        let ident = &c.ident;
-        let methods = &c.methods;
-        context_decl = Some(quote! {
-            pub(super) trait #ident {
-                #(#methods)*
-            }
-        });
-        context_use = Some(quote! {
-            #vis use #mod_name::#ident;
-        });
-    } else {
-        context_decl = None;
+    let context_use;
+    let context_zst;
+    let context_field;
+    let context_arg_sig;
+    let context_field_init;
+    let context_arg;
+
+    let context_ident = &machine.context.ident;
+    let context_methods = &machine.context.methods;
+    let context_decl = quote! {
+        pub trait #context_ident {
+            #(#context_methods)*
+        }
+    };
+
+    if let Some(zst) = &machine.context.zst {
         context_use = None;
+        context_zst = Some(quote! {
+            struct #zst;
+            impl #context_ident for #zst {}
+        });
+        context_field = quote! { #zst };
+        context_arg_sig = quote! {};
+        context_field_init = quote! { #zst };
+        context_arg = quote! { &self.context };
+    } else {
+        context_use = Some(quote! {
+            #vis use #mod_name::#context_ident;
+        });
+        context_zst = None;
+        context_arg_sig = quote! { context: Context };
+        context_field = quote! { Context };
+        context_arg = quote! { &self.context };
+        context_field_init = quote! { context };
     }
 
     let process_impls = machine.events.iter().map(|(path, event_ident)| {
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         quote! {
             impl #impl_generics ::umlstate::EventProcessor<#path> for #ident #ty_generics #where_clause {
                 fn process(&mut self, event: #path) -> ::umlstate::ProcessResult {
-                    self.process_event(Event::#event_ident(event))
+                    self.state.process_event(#context_arg, Event::#event_ident(event))
                 }
             }
         }
@@ -61,6 +80,7 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
     quote! {
         mod #mod_name {
             use super::*;
+            use ::std::ops::DerefMut;
 
             #[derive(Clone)]
             enum Event {
@@ -68,14 +88,41 @@ fn generate_machine(machine: &lower::TopMachine) -> proc_macro2::TokenStream {
             }
 
             #context_decl
+            #context_zst
+
+            pub struct #ident #impl_generics #where_clause {
+                context: #context_field,
+                state: #state_mod_name::#state_ident,
+            }
+
+            impl #impl_generics #ident #ty_generics #where_clause {
+                pub fn new(#context_arg_sig) -> Self {
+                    Self {
+                        context: #context_field_init,
+                        state: #state_mod_name::#state_ident::new(),
+                    }
+                }
+
+                pub fn state(&self) -> ::std::option::Option<#state_mod_name::#topmachine_state> {
+                    self.state.state()
+                }
+
+                pub fn enter(&mut self) {
+                    self.state.enter(#context_arg);
+                }
+
+                pub fn exit(&mut self) {
+                    self.state.exit(#context_arg);
+                }
+            }
 
             #(#process_impls)*
 
             #state_decl
         }
 
-        #vis use #mod_name::#mod_name::#topmachine_state;
-        #vis use #mod_name::#mod_name::#state_ident as #ident;
+        #vis use #mod_name::#state_mod_name::#topmachine_state;
+        #vis use #mod_name::#ident;
         #context_use
     }
 }
@@ -85,10 +132,7 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
     let root_path = &state.root_path;
     let mod_name = &state.mod_name;
     let state_type = &state.state_type;
-
-    let get_ctx = state.context_type.as_ref().map(|_| {
-        quote! { let ctx = self.context.borrow(); }
-    });
+    let context_type = &state.context_type;
 
     let invalid_event_state_str = format!("{} received event while in invalid state", state_name);
 
@@ -104,9 +148,8 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
         let state_mod = &s.mod_name;
         let state_ident = &s.ident;
         let field_ident = &s.field_ident;
-        let (_impl_generics, ty_generics, _where_clause) = s.generics.split_for_impl();
         quote! {
-            #field_ident: #state_mod::#state_ident #ty_generics
+            #field_ident: #state_mod::#state_ident
         }
     });
 
@@ -116,9 +159,8 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
         let type_ident = &s.ident;
         let mod_name = &s.mod_name;
         let field_ident = &s.field_ident;
-        let context_arg = s.context_type.as_ref().map(|_| quote! { context.clone() });
         quote! {
-            #field_ident: #mod_name::#type_ident::new(#context_arg)
+            #field_ident: #mod_name::#type_ident::new()
         }
     });
 
@@ -133,10 +175,9 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
 
         quote! {
             #state_type::#state_name => {
-                match self.#field_ident.process_event(event.clone()) {
+                match self.#field_ident.process_event(ctx, event.clone()) {
                     ::umlstate::ProcessResult::Handled => ::umlstate::ProcessResult::Handled,
                     ::umlstate::ProcessResult::Unhandled => {
-                        #get_ctx
                         match event.clone() {
                             #(#transitions),*
                             _ => ::umlstate::ProcessResult::Unhandled,
@@ -152,7 +193,7 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
 
         quote! {
             {
-                let r = self.#field_ident.process_event(event.clone());
+                let r = self.#field_ident.process_event(ctx, event.clone());
                 if r == ::umlstate::ProcessResult::Handled {
                     result = r;
                 }
@@ -165,18 +206,6 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
         .iter()
         .map(|t| generate_internal_transition(state, t));
 
-    let generics = &state.generics;
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let context_field = state.context_type.as_ref().map(|ident| {
-        quote! {
-            context: Rc<RefCell<#ident>>,
-        }
-    });
-    let context_init = state.context_type.as_ref().map(|_ident| {
-        quote! {
-            context: context.clone(),
-        }
-    });
     let enter_action = generate_entry(state, state.initial_transition.as_ref());
     let exit_action = generate_exit(state);
 
@@ -201,8 +230,6 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
     quote! {
         pub mod #mod_name {
             use super::*;
-            use std::cell::RefCell;
-            use std::rc::Rc;
 
             #[derive(Clone, Debug, PartialEq)]
             pub enum #state_type {
@@ -210,16 +237,14 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
                 #active_state_decl
             }
 
-            pub(in #root_path::super) struct #state_name #generics {
-                #context_field
+            pub(in #root_path::super) struct #state_name {
                 state: ::std::option::Option<#state_type>,
                 #(#state_fields),*
             }
 
-            impl #impl_generics #state_name #ty_generics #where_clause {
-                pub fn new(#context_field) -> Self {
+            impl #state_name {
+                pub fn new() -> Self {
                     Self {
-                        #context_init
                         state: ::std::option::Option::None,
                         #(#states_init),*
                     }
@@ -229,7 +254,7 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
                     self.state.clone()
                 }
 
-                pub(super) fn process_event(&mut self, event: Event) -> ::umlstate::ProcessResult {
+                pub(super) fn process_event(&mut self, ctx: &impl #context_type, event: Event) -> ::umlstate::ProcessResult {
                     let state = if let ::std::option::Option::Some(s) = &self.state {
                         s
                     } else {
@@ -245,18 +270,17 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
                         return result
                     }
 
-                    #get_ctx
                     match event {
                         #(#internal_transitions),*
                         _ => ::umlstate::ProcessResult::Unhandled
                     }
                 }
 
-                pub fn enter(&mut self) {
+                pub(super) fn enter(&mut self, ctx: &impl #context_type) {
                     #enter_action
                 }
 
-                pub fn exit(&mut self) {
+                pub(super) fn exit(&mut self, ctx: &impl #context_type) {
                     #exit_action
                 }
             }
@@ -267,13 +291,9 @@ fn generate_state(state: &lower::State) -> proc_macro2::TokenStream {
 }
 
 fn generate_internal_transition(
-    state: &lower::State,
+    _state: &lower::State,
     t: &lower::Transition,
 ) -> proc_macro2::TokenStream {
-    let drop_ctx = state.context_type.as_ref().map(|_| quote! { drop(ctx); });
-    let mut_ctx = state.context_type.as_ref().map(|_| {
-        quote! { let mut ctx = self.context.borrow_mut(); }
-    });
     let event = &t.event;
     let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
     let guard = t.guard.as_ref().map(|g| quote! { if #g });
@@ -281,9 +301,7 @@ fn generate_internal_transition(
 
     quote! {
         Event::#event(event #event_pat) #guard => {
-            #drop_ctx
             {
-                #mut_ctx
                 #action;
             }
             ::umlstate::ProcessResult::Handled
@@ -296,10 +314,6 @@ fn generate_transition(
     cur_state: &lower::State,
     t: &lower::Transition,
 ) -> proc_macro2::TokenStream {
-    let drop_ctx = parent.context_type.as_ref().map(|_| quote! { drop(ctx); });
-    let mut_ctx = parent.context_type.as_ref().map(|_| {
-        quote! { let mut ctx = self.context.borrow_mut(); }
-    });
     let event = &t.event;
     let event_pat = &t.event_pat.as_ref().map(|p| quote! { @ #p });
     let guard = t.guard.as_ref().map(|g| quote! { if #g });
@@ -311,14 +325,12 @@ fn generate_transition(
 
     quote! {
         Event::#event(event #event_pat) #guard => {
-            #drop_ctx
-            self.#cur_state_field.exit();
+            self.#cur_state_field.exit(ctx);
             {
-                #mut_ctx
                 #action;
             }
             self.state = ::std::option::Option::Some(#state_type::#next_state_name);
-            self.#next_state_field.enter();
+            self.#next_state_field.enter(ctx);
             ::umlstate::ProcessResult::Handled
         }
     }
@@ -328,9 +340,6 @@ fn generate_entry(
     state: &lower::State,
     transition: Option<&lower::Transition>,
 ) -> proc_macro2::TokenStream {
-    let mut_ctx = state.context_type.as_ref().map(|_| {
-        quote! { let mut ctx = self.context.borrow_mut(); }
-    });
     let state_type = &state.state_type;
     let state_name;
     let action;
@@ -342,7 +351,7 @@ fn generate_entry(
         action = &t.action;
         let field_ident = &t.target_state_field;
         enter_substate = quote! {
-            self.#field_ident.enter();
+            self.#field_ident.enter(ctx);
         };
     } else {
         state_name = quote::format_ident!("Active");
@@ -350,7 +359,7 @@ fn generate_entry(
         let enter_regions = state.regions.iter().map(|s| {
             let field_ident = &s.field_ident;
             quote! {
-                self.#field_ident.enter();
+                self.#field_ident.enter(ctx);
             }
         });
         enter_substate = quote! { #(#enter_regions)* };
@@ -363,7 +372,6 @@ fn generate_entry(
             panic!(#invalid_enter_state_str);
         }
         {
-            #mut_ctx
             #action;
             self.state = ::std::option::Option::Some(#state_type::#state_name);
             #entry_action;
@@ -373,22 +381,19 @@ fn generate_entry(
 }
 
 fn generate_exit(state: &lower::State) -> proc_macro2::TokenStream {
-    let mut_ctx = state.context_type.as_ref().map(|_| {
-        quote! { let mut ctx = self.context.borrow_mut(); }
-    });
     let state_type = &state.state_type;
     let exit_action = &state.exit;
     let sub_state_exits = state.states.iter().map(|s| {
         let ident = &s.ident;
         let field_ident = &s.field_ident;
         quote! {
-            #state_type::#ident => self.#field_ident.exit()
+            #state_type::#ident => self.#field_ident.exit(ctx)
         }
     });
     let region_exits = state.regions.iter().map(|s| {
         let field_ident = &s.field_ident;
         quote! {
-            self.#field_ident.exit();
+            self.#field_ident.exit(ctx);
         }
     });
     let simple_active_arm = if state.states.is_empty() {
@@ -415,7 +420,6 @@ fn generate_exit(state: &lower::State) -> proc_macro2::TokenStream {
             #simple_active_arm
         }
         {
-            #mut_ctx
             self.state = ::std::option::Option::None;
             #exit_action;
         }
